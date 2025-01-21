@@ -295,7 +295,7 @@ bool getBackwardSliceToPartition(Value v, DataPartitionScheme &partitionScheme,
       for (Value operand : op->getOperands())
         if (!getBackwardSliceToPartition(operand, partitionScheme, currentDim))
           return false;
-    } else if (auto dotOp = dyn_cast<nvidia_gpu::WarpGroupDotOp>(op)) {
+    } else if (auto dotOp = dyn_cast<DotOp>(op)) {
       if (!getBackwardSliceToPartition(currentDim == 0 ? dotOp.getA()
                                                        : dotOp.getB(),
                                        partitionScheme, currentDim))
@@ -413,7 +413,7 @@ bool getForwardSliceToPartition(Value v, DataPartitionScheme &partitionScheme,
       return forwardSlice.empty();
     };
 
-    if (auto dotOp = dyn_cast<nvidia_gpu::WarpGroupDotOp>(depOp)) {
+    if (auto dotOp = dyn_cast<DotOp>(depOp)) {
       if ((currentDim == 0 && v == dotOp.getB()) ||
           (currentDim == 1 && v == dotOp.getA())) {
         // It is fine to continue the partition if the dot output is immediately
@@ -487,7 +487,7 @@ bool getSliceToPartition(Value root, DataPartitionScheme &partitionScheme,
                                          currentDim))
           return false;
       }
-    } else if (auto dotOp = dyn_cast<nvidia_gpu::WarpGroupDotOp>(op)) {
+    } else if (auto dotOp = dyn_cast<DotOp>(op)) {
       unsigned opndIndx = partitionScheme.dotPartitionOperand[op];
       if (!getBackwardSliceToPartition(dotOp.getOperand(opndIndx),
                                        partitionScheme, currentDim))
@@ -518,13 +518,13 @@ bool getSliceToPartition(Value root, DataPartitionScheme &partitionScheme,
 bool computePartitionScheme(triton::FuncOp &funcOp,
                             DataPartitionScheme &partitionScheme) {
   // Use dot to drive the partition
-  SetVector<nvidia_gpu::WarpGroupDotOp> dots;
+  SetVector<DotOp> dots;
 
   // check all dot ops that have more than one async task id
   funcOp.walk([&](Operation *op) {
     auto asyncTaskIds = getAsyncTaskIds(op);
     if (asyncTaskIds.size() > 1) {
-      if (auto dotWaitOp = dyn_cast<nvidia_gpu::WarpGroupDotOp>(op)) {
+      if (auto dotWaitOp = dyn_cast<DotOp>(op)) {
         dots.insert(dotWaitOp);
       }
     }
@@ -686,7 +686,7 @@ void rewriteRematerializedOps(triton::FuncOp &funcOp,
         if (isa<TransOp>(user)) {
           // flip userDim for trans
           userDim = partitionScheme.flipPartitionDim(userDim);
-        } else if (auto dotOp = dyn_cast<nvidia_gpu::WarpGroupDotOp>(user)) {
+        } else if (auto dotOp = dyn_cast<DotOp>(user)) {
           // infer userDim for dot
           assert(partitionScheme.dotPartitionOperand.contains(user) &&
                  "no operand info");
@@ -763,7 +763,7 @@ Operation *sliceOp(Operation *op, int offset, IRMapping &mappings,
       if (dim == DataPartitionScheme::noOpPartitionDim) {
         // Just duplicate the op for noOpPartitionDim
         needRetype = false;
-      } else if (isa<nvidia_gpu::WarpGroupDotOp>(op)) {
+      } else if (isa<DotOp>(op)) {
         assert(partitionScheme.dotPartitionOperand.contains(op) &&
                "no operand info");
         unsigned opndIndx = partitionScheme.dotPartitionOperand[op];
@@ -895,7 +895,7 @@ Operation *sliceOp(Operation *op, int offset, IRMapping &mappings,
     newV.setType(newType);
     mappings.map(v, newV);
     reverseMappings.map(newV, v);
-  } else if (auto dotOp = dyn_cast<nvidia_gpu::WarpGroupDotOp>(op)) {
+  } else if (auto dotOp = dyn_cast<DotOp>(op)) {
     assert(partitionScheme.dotPartitionOperand.contains(op) &&
            "no operand info");
     unsigned opndIndx = partitionScheme.dotPartitionOperand[op];
