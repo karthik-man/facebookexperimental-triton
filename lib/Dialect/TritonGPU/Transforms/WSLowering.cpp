@@ -1,8 +1,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "triton/Dialect/TritonGPU/Transforms/Passes.h"
 
-#include <set>
-
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/IR/OperationSupport.h"
 #include "triton/Analysis/Utility.h"
 #include "triton/Dialect/Triton/IR/Types.h"
@@ -11,6 +10,7 @@
 #include "triton/Dialect/TritonGPU/Transforms/Utility.h"
 #include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 #include "triton/Tools/Sys/GetEnv.hpp"
+#include <set>
 
 namespace tt = mlir::triton;
 namespace ttg = mlir::triton::gpu;
@@ -41,7 +41,7 @@ void lowerGetAsyncTaskIdOp(Operation *parentOp, int numConsumerGroups) {
     auto loc = op.getLoc();
     OpBuilder builder(op);
     Value _4 = builder.create<arith::ConstantIntOp>(loc, WARPS_PER_TASK, 32);
-    Value warpId = builder.create<ttng::GetCanonicalWarpIdOp>(loc);
+    Value warpId = builder.create<tt::GetProgramIdOp>(loc, 0);
     Value asyncTaskId = builder.create<arith::DivUIOp>(loc, warpId, _4);
     op.getResult().replaceAllUsesWith(asyncTaskId);
 
@@ -193,40 +193,13 @@ void lowerTokenOperations(Operation *parentOp, int numCTAs,
     // and ConsumerReleaseOp.
     for (Operation *user : createTokenOp.getResult().getUsers()) {
       auto loc = user->getLoc();
-      builder.setInsertionPoint(user);
-      if (auto op = dyn_cast<ttng::ProducerAcquireOp>(user)) {
-        Value bufferEmpty = extractBufferEmpty(loc, op.getIdx());
-        assert(user->hasAttr("async_task_id"));
-        setAsyncTaskIds(bufferEmpty.getDefiningOp(), getAsyncTaskIds(user));
-        processProducerAcquireOp(builder, op, bufferEmpty);
-      } else if (auto op = dyn_cast<ttng::ProducerCommitOp>(user)) {
-        Value bufferFull = extractBufferFull(loc, op.getIdx());
-        assert(user->hasAttr("async_task_id"));
-        setAsyncTaskIds(bufferFull.getDefiningOp(), getAsyncTaskIds(user));
-        processProducerCommitOp(builder, op, bufferFull, loadType);
-      } else if (auto op = dyn_cast<ttng::ConsumerWaitOp>(user)) {
-        Value bufferFull = extractBufferFull(loc, op.getIdx());
-        assert(user->hasAttr("async_task_id"));
-        setAsyncTaskIds(bufferFull.getDefiningOp(), getAsyncTaskIds(user));
-        processConsumerWaitOp(builder, op, bufferFull);
-      } else if (auto op = dyn_cast<ttng::ConsumerReleaseOp>(user)) {
-        Value bufferEmpty = extractBufferEmpty(loc, op.getIdx());
-        assert(user->hasAttr("async_task_id"));
-        setAsyncTaskIds(bufferEmpty.getDefiningOp(), getAsyncTaskIds(user));
-        processConsumerReleaseOp(builder, op, bufferEmpty, numCTAs);
-      } else {
-        llvm_unreachable("Unexpected user of token");
-      }
       deprecatedOps.push_back(user);
     }
-
     deprecatedOps.push_back(createTokenOp);
   });
   for (auto op : deprecatedOps) {
     op->erase();
   }
-
-  assert(numCTAs == 1 && "remote CTA is not supported yet");
 }
 
 #define GEN_PASS_DEF_TRITONGPUWSLOWERING

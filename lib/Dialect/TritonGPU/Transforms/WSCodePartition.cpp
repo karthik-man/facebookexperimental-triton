@@ -976,24 +976,6 @@ DenseMap<AsyncTaskId, scf::IfOp> SpecializeRegion(triton::FuncOp funcOp,
     }
   }
 
-  // Decide if this taskId is a producer or a consumer, and create either
-  // RegAllocOp or RegDeallocOp accordingly.
-  for (auto ifOps : tasksToIfOp) {
-    AsyncTaskId asyncTaskId = ifOps.first;
-    auto ifOp = ifOps.second;
-    OpBuilderWithAsyncTaskIds taskBuilder(ifOp.getContext());
-    taskBuilder.setAsynTaskIdsFromArray({asyncTaskId});
-    auto regAlloc = scanRegUsage(ifOp.thenBlock(), asyncTaskId, regDecProducer,
-                                 regIncConsumer);
-    taskBuilder.setInsertionPointToStart(&(ifOp.getThenRegion().front()));
-    if (regAlloc.second)
-      taskBuilder.create<ttng::RegAllocOp>(
-          loc, taskBuilder.getI32IntegerAttr(regAlloc.first));
-    else
-      taskBuilder.create<ttng::RegDeallocOp>(
-          loc, taskBuilder.getI32IntegerAttr(regAlloc.first));
-  }
-
   LLVM_DEBUG({
     LDBG("\n\nWith task Id checks");
     funcOp.dump();
@@ -2774,33 +2756,15 @@ void insertAsyncCopy(
           srcOp->getLoc(), 0, 32);
     }
 
-    assert(mutuallyNonDominatingChannels.size() == 1 &&
-           "conditional consumers not supported");
-
-    auto domininatingChannel = *mutuallyNonDominatingChannels.begin();
-    std::pair<Operation *, Operation *> producerConsumerOps{nullptr, nullptr};
-
-    // No need to create async copy for TMA load which will be handled in
-    // insertAsyncComm.
-    if (isa<tt::ExperimentalDescriptorLoadOp>(srcOp)) {
-      producerConsumerOps = {srcOp, domininatingChannel->getDstOp()};
-    } else if (isa<triton::LoadOp>(srcOp)) {
-      SmallVector<AsyncTaskId> asyncTasksPC = getAsyncTaskIds(srcOp);
-      asyncTasksPC.append(getAsyncTaskIds(domininatingChannel->getDstOp()));
-      // After createAsyncCopy, c->getSrcOp()/headProducer are no longer
-      // valid.
-      producerConsumerOps = createAsyncCopy(bufferMap, domininatingChannel,
-                                            domininatingChannel->getSrcOp(),
-                                            asyncTasksPC, bufferIdx, bufferIdx);
-    } else {
-      assert(!isa<ttg::LocalLoadOp>(srcOp) &&
-             "LocalLoadOp buffer should be reused");
-      producerConsumerOps =
-          createLocalCopy(bufferMap, domininatingChannel, bufferIdx, bufferIdx);
-    }
-
-    for (auto &channel : kv.second) {
-      copyOpMap[channel] = producerConsumerOps;
+    for (auto channel : mutuallyNonDominatingChannels) {
+      // No need to create async copy for TMA load which is handled in
+      // insertAsyncComm.
+      if (isa<tt::ExperimentalDescriptorLoadOp, ttg::LocalLoadOp>(srcOp)) {
+        continue;
+      }
+      if (isa<triton::LoadOp>(srcOp)) {
+        createLocalCopy(bufferMap, channel, bufferIdx, bufferIdx);
+      }
     }
   }
 }
