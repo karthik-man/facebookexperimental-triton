@@ -279,4 +279,21 @@ def TritonAMDFoldTrueCmpI: Pass<"tritonamdgpu-fold-true-cmpi", "mlir::ModuleOp">
 }
 
 
+def TritonAMDGPUWSLowering : Pass<"tritonamdgpu-ws-lowering", "mlir::ModuleOp"> {
+  let summary = "Lowering WS ops to amd gpu";
+
+    let description = "This pass lowers wave specialization ops to WS dialect.";
+
+    let constructor = "mlir::createTritonAMDGPUWSLoweringPass()";
+
+    let dependentDialects = ["mlir::ROCDL::ROCDLDialect",
+                             "mlir::triton::gpu::TritonGPUDialect",
+                             "mlir::triton::amdgpu::TritonAMDGPUDialect"];
+    let options = [
+    Option<"numConsumerGroups", "num-consumer-groups",
+           "int32_t", /*default*/"1",
+           "number of consumer warp groups for warp specialization">,
+  ];
+}
+
 #endif

@@ -1,8 +1,6 @@
 #include "mlir/Transforms/Passes.h"
 #include "triton/Dialect/TritonGPU/Transforms/Passes.h"
 
-#include <set>
-
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "triton/Analysis/Utility.h"
@@ -12,6 +10,7 @@
 #include "triton/Dialect/TritonGPU/Transforms/Utility.h"
 #include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 #include "triton/Tools/Sys/GetEnv.hpp"
+#include <set>
 
 namespace tt = mlir::triton;
 namespace ttg = mlir::triton::gpu;
@@ -42,7 +41,7 @@ void lowerGetAsyncTaskIdOp(Operation *parentOp, int numConsumerGroups) {
     auto loc = op.getLoc();
     OpBuilder builder(op);
     Value _4 = builder.create<arith::ConstantIntOp>(loc, WARPS_PER_TASK, 32);
-    Value warpId = builder.create<ttng::GetCanonicalWarpIdOp>(loc);
+    Value warpId = builder.create<tt::GetProgramIdOp>(loc, 0);
     Value asyncTaskId = builder.create<arith::DivUIOp>(loc, warpId, _4);
     op.getResult().replaceAllUsesWith(asyncTaskId);
 

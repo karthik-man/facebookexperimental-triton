@@ -346,11 +346,18 @@ class HIPBackend(BaseBackend):
         amd.set_bool_control_constant(llvm_mod, "__oclc_unsafe_math_opt", False)
         amd.set_bool_control_constant(llvm_mod, "__oclc_wavefrontsize64", options.warp_size == 64)
 
+         # warp-specialization mutates num_warps
+        num_warp_groups = src.get_int_attr("triton_gpu.num-warp-groups-per-cta")
+        if num_warp_groups is not None:
+            metadata["num_warps"] *= num_warp_groups
+        else:
+            num_warp_groups = 1
+
         # Set kernel attributes first given this may affect later optimizations.
         fns = [fn for fn in llvm_mod.get_functions() if not fn.is_declaration()]
         # The public kernel should be kernel 0.
         fns[0].set_calling_conv(amd.CALLING_CONV_AMDGPU_KERNEL)
-        fns[0].add_fn_attr("amdgpu-flat-work-group-size", f"1,{options.num_warps*options.warp_size}")
+        fns[0].add_fn_attr("amdgpu-flat-work-group-size", f"1,{options.num_warps*options.warp_size*num_warp_groups}")
         # LLVM AMDGPU backend supports the attribute "amdgpu-waves-per-eu"="<min>[, <max>]".
         # This attribute may be attached to a kernel function definition and is an optimization hint.
         # <min> parameter specifies the requested minimum number of waves per EU, and optional <max> parameter

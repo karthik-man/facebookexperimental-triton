@@ -159,6 +159,8 @@ void MembarAnalysis::visitTerminator(Operation *op,
 }
 
 void MembarAnalysis::insertBarrier(Operation *op, OpBuilder *builder) {
+  // HACK: DO NOT ADD BARRIERS WHEN USING WAVE SPECIALIZATION
+  return;
   OpBuilder::InsertionGuard g(*builder);
   auto barrierOp = builder->create<gpu::BarrierOp>(op->getLoc());
 }

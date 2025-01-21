@@ -471,19 +471,19 @@ void insertAsyncCopy(
     if (isa<tt::DescriptorLoadOp>(srcOp)) {
       producerConsumerOps = {srcOp, domininatingChannel->getDstOp()};
     } else if (isa<triton::LoadOp>(srcOp)) {
-      SmallVector<AsyncTaskId> asyncTasksPC = getAsyncTaskIds(srcOp);
-      asyncTasksPC.append(getAsyncTaskIds(domininatingChannel->getDstOp()));
-      // After createAsyncCopy, c->getSrcOp()/headProducer are no longer
-      // valid.
-      producerConsumerOps = createAsyncCopy(bufferMap, domininatingChannel,
-                                            domininatingChannel->getSrcOp(),
-                                            asyncTasksPC, bufferIdx, bufferIdx);
-    } else if (domininatingChannel->channelKind == DataChannelKind::TMEM) {
-      producerConsumerOps =
-          createTMEMCopy(bufferMap, domininatingChannel, bufferIdx, bufferIdx);
-    } else {
-      assert(!isa<ttg::LocalLoadOp>(srcOp) &&
-             "LocalLoadOp buffer should be reused");
+    //   SmallVector<AsyncTaskId> asyncTasksPC = getAsyncTaskIds(srcOp);
+    //   asyncTasksPC.append(getAsyncTaskIds(domininatingChannel->getDstOp()));
+    //   // After createAsyncCopy, c->getSrcOp()/headProducer are no longer
+    //   // valid.
+    //   producerConsumerOps = createAsyncCopy(bufferMap, domininatingChannel,
+    //                                         domininatingChannel->getSrcOp(),
+    //                                         asyncTasksPC, bufferIdx, bufferIdx);
+    // } else if (domininatingChannel->channelKind == DataChannelKind::TMEM) {
+    //   producerConsumerOps =
+    //       createTMEMCopy(bufferMap, domininatingChannel, bufferIdx, bufferIdx);
+    // } else {
+    //   assert(!isa<ttg::LocalLoadOp>(srcOp) &&
+    //          "LocalLoadOp buffer should be reused");
       producerConsumerOps =
           createLocalCopy(bufferMap, domininatingChannel, bufferIdx, bufferIdx);
     }

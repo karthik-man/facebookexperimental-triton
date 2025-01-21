@@ -10,13 +10,13 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import impls
 
 
-if torch.cuda.is_available():
-    from triton._C.libtriton import nvidia
+# if torch.cuda.is_available():
+#     from triton._C.libtriton import nvidia
 
-    cublas_workspace = torch.empty(32 * 1024 * 1024, device="cuda", dtype=torch.uint8)
-    cublas = nvidia.cublas.CublasLt(cublas_workspace)
-else:
-    cublas = None
+#     cublas_workspace = torch.empty(32 * 1024 * 1024, device="cuda", dtype=torch.uint8)
+#     cublas = nvidia.cublas.CublasLt(cublas_workspace)
+# else:
+cublas = None
 
 
 def is_cuda():
@@ -68,20 +68,20 @@ test_impls = [
     aten_matmul,
     # cublas_matmul,
     # inductor_matmul,
-    impls.matmul,
-    impls.matmul_persistent,
-    impls.matmul_persistent_cooperative,
-    impls.matmul_persistent_tma,
-    impls.matmul_persistent_tma_ws,
-    impls.matmul_persistent_tma_ws_cooperative,
-    impls.matmul_persistent_tma_ws_cooperative_manual,
-    impls.matmul_persistent_ws,
+    # impls.matmul,
+    # impls.matmul_persistent,
+    # impls.matmul_persistent_cooperative,
+    # impls.matmul_persistent_tma,
+    # impls.matmul_persistent_tma_ws,
+    # impls.matmul_persistent_tma_ws_cooperative,
+    # impls.matmul_persistent_tma_ws_cooperative_manual,
+    # impls.matmul_persistent_ws,
     impls.matmul_persistent_ws_cooperative,
-    impls.matmul_persistent_ws_cooperative_manual,
-    impls.matmul_tma_ws,
-    impls.matmul_tma_ws_cooperative,
-    impls.matmul_ws_cooperative,
-    impls.matmul_1d_persistent_swp_tma,
+    # impls.matmul_persistent_ws_cooperative_manual,
+    # impls.matmul_tma_ws,
+    # impls.matmul_tma_ws_cooperative,
+    # impls.matmul_ws_cooperative,
+    # impls.matmul_1d_persistent_swp_tma,
 ]
 
 impl_map = {fn.__name__: fn for fn in test_impls}
@@ -89,11 +89,11 @@ impl_map = {fn.__name__: fn for fn in test_impls}
 
 def test():
     torch.manual_seed(0)
-    m = 4 * 11 * 64
-    n = 12 * 256
-    k = 64 * 4
-    a = torch.randn((m, k), device="cuda", dtype=torch.float16)
-    b = torch.randn((k, n), device="cuda", dtype=torch.float16)
+    m = 512
+    n = 512
+    k = 512
+    a = torch.rand((m, k), device="cuda", dtype=torch.float16)
+    b = torch.rand((k, n), device="cuda", dtype=torch.float16)
     torch_output = torch.matmul(a, b)
     # Bigger tolerance for AMD MI200 devices.
     # MI200 devices use reduced precision fp16 and bf16 and flush input and
@@ -138,7 +138,9 @@ elif GEMM_SHAPES == "llama":
     x_vals = [(m, n, k) for m in [128, 256, 384, 512] for (k, n) in KN]
 else:
     # Simple shape with 4 waves over 132 SMs
-    x_vals = [(4 * 11 * 128, 12 * 256, 4096)]
+    # x_vals = [(4 * 11 * 128, 12 * 256, 4096)]
+        x_vals = [(4096, 4096, 4096)]
+
 
 
 configs = []
