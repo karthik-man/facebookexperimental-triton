@@ -129,6 +129,7 @@ def TritonAMDGPUWSLowering : Pass<"tritonamdgpu-ws-lowering", "mlir::ModuleOp"> 
     let constructor = "mlir::createTritonAMDGPUWSLoweringPass()";
 
     let dependentDialects = ["mlir::ROCDL::ROCDLDialect",
+                             "mlir::triton::gpu::TritonGPUDialect",
                              "mlir::triton::amdgpu::TritonAMDGPUDialect"];
 }
 
