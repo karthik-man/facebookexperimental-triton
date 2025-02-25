@@ -88,10 +88,10 @@ Value getMBarrierPhaseBit(OpBuilder &builder, Operation *op,
   return curPhase;
 }
 
-void processProducerAcquireOp(OpBuilder &builder, ttng::ProducerAcquireOp op,
-                              Value bufferEmptyPhaseView) {
-  auto loc = op.getLoc();
-  Value localPhase = getMBarrierPhaseBit(builder, op, true);
+void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
+                              Value bufferPhaseView, bool isProducer) {
+  Value localPhase = getMBarrierPhaseBit(builder, op, isProducer);
+  auto loc = op->getLoc();
   auto i32Ty = builder.getIntegerType(32);
   localPhase = builder.create<arith::ExtUIOp>(loc, i32Ty, localPhase);
   auto phaseTensorType = RankedTensorType::get({1}, builder.getI32Type());
@@ -106,7 +106,7 @@ void processProducerAcquireOp(OpBuilder &builder, ttng::ProducerAcquireOp op,
   builder.setInsertionPointToEnd(beforeBlock);
 
   Value barrierPhaseTensor = builder.create<ttg::LocalLoadOp>(
-      loc, phaseTensorType, bufferEmptyPhaseView);
+      loc, phaseTensorType, bufferPhaseView);
   auto index_0 = builder.create<arith::ConstantIndexOp>(loc, 0);
   // SmallVector<Value> index;
   // index.push_back(index_0);
@@ -120,9 +120,24 @@ void processProducerAcquireOp(OpBuilder &builder, ttng::ProducerAcquireOp op,
   // after block
   Block *afterBlock = builder.createBlock(&whileOp.getAfter());
   builder.setInsertionPointToEnd(afterBlock);
-  auto instrinsic = "llvm.amdgcn.s_sleep 10";
-  auto sleepOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, instrinsic, TypeRange{}, ValueRange{});
+  auto sleepInstrinsic = "llvm.amdgcn.s_sleep 10";
+  auto sleepOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, sleepInstrinsic, TypeRange{}, ValueRange{});
   builder.create<scf::YieldOp>(loc,  ValueRange{});
+  // wake up sleeping threads
+  builder.setInsertionPointAfter(whileOp);
+  auto wakeupInstrinsic = "llvm.amdgcn.s_wakeup";
+  auto wakeUpOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, wakeupInstrinsic, TypeRange{}, ValueRange{});
+}
+
+void processCommitOpOrReleaseOp(OpBuilder &builder, Operation *op, Value bufferCountView, Value bufferPhaseView, Value threadId) {
+  auto loc = op->getLoc();
+  auto threadsPerWave = builder.create<arith::ConstantIntOp>(loc, 64, 32);
+  auto mod = builder.create<arith::RemSIOp>(loc, threadId, threadsPerWave);
+  auto zero = builder.create<arith::ConstantIntOp>(loc, 0, 32);
+  auto cond = builder.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq, mod, zero);
+  auto ifOp = builder.create<scf::IfOp>(loc, cond);
+  auto thenBuilder = ifOp.getThenBodyBuilder();
+  thenBuilder.create<triton::amdgpu::ArriveBarrierOp>(loc, bufferCountView, bufferPhaseView);
 }
 
 static const int THREADS_PER_TASK = 64;
@@ -207,9 +222,15 @@ void lowerTokenOperations(Operation *parentOp) {
       if (auto op = dyn_cast<ttng::ProducerAcquireOp>(user)) {
         Value bufferEmptyPhase = createFieldView(builder, loc, bufferEmptyArray,
                                                  op.getIdx(), phaseOffset);
-        processProducerAcquireOp(builder, op, bufferEmptyPhase);
-        eraseOps.insert(op);
+        processAcquireOpOrWaitOp(builder, op, bufferEmptyPhase, true);
+      } else if (auto op = dyn_cast<ttng::ProducerCommitOp>(user)) {
+        Value bufferFullPhaseView = createFieldView(builder, loc, bufferFullArray,
+                                                 op.getIdx(), phaseOffset);
+        Value bufferFullCountView = createFieldView(builder, loc, bufferFullArray,
+                                                 op.getIdx(), countOffset);
+        processCommitOpOrReleaseOp(builder, op, bufferFullCountView, bufferFullPhaseView, threadId);
       }
+      eraseOps.insert(user);
     }
   });
 

@@ -43,6 +43,7 @@ class TT_AMDGPU_Op<string mnemonic, list<Trait> traits = []> :
 // Interfaces
 //
 def GlobalMemory : Resource<"::mlir::triton::GlobalMemory">;
+def SharedMemory : Resource<"::mlir::triton::SharedMemory">;
 
 def InstructionSchedHint : TT_AMDGPU_Op<"instruction_sched_hint", []> {
   let summary = "A placeholder op for instruction scheduling hints within a basic block";
@@ -58,6 +59,21 @@ def InstructionSchedHint : TT_AMDGPU_Op<"instruction_sched_hint", []> {
   }];
 
   let assemblyFormat = [{attr-dict}];
+}
+
+def ArriveBarrierOp : TT_AMDGPU_Op<"arrive_barrier",  [MemoryEffects<[MemWrite<SharedMemory>]>]> {
+  let summary = "barrier arrive";
+
+  let description = [{
+    This operation defining the arriving action for a named barrier.
+  }];
+
+  let arguments = (ins 
+                   TT_MemDescType:$count,
+                   TT_MemDescType:$phase
+                  );
+
+  let assemblyFormat = "operands attr-dict `:` type(operands)";
 }
 
 //
