@@ -34,11 +34,6 @@ struct ArriveBarrierOpConversion
   matchAndRewrite(triton::amdgpu::ArriveBarrierOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op->getLoc();
-    Block *currentBlock = rewriter.getInsertionBlock();
-    // Block *afterCondBarBlock =
-    //     rewriter.splitBlock(currentBlock, rewriter.getInsertionPoint());
-    // Block *trueBlock = rewriter.createBlock(afterCondBarBlock);
-    // rewriter.setInsertionPointToEnd(currentBlock);
 
     auto countSmemObj = LLVM::getSharedMemoryObjectFromStruct(
       op.getLoc(), adaptor.getCount(),
@@ -52,15 +47,41 @@ struct ArriveBarrierOpConversion
 
     auto wrapAroundVal = LLVM::createConstantI32(loc, rewriter, 1);
 
-    auto dsDecRtnIntrincis = "llvm.amdgcn.ds_dec_rtn_u32";
-    auto countBaseAddr = countSmemObj.getBase();
-    auto countElemType = countSmemObj.getBaseElemType();
-    SmallVector<Value, 6> args{countBaseAddr, wrapAroundVal};
-    auto dsDecRtnOp = LLVM::createLLVMIntrinsicCallOp(rewriter, loc, dsDecRtnIntrincis, countElemType, args);
-    auto res = dsDecRtnOp.getResult(0);
-    llvm::errs() << *currentBlock;
 
+    GCNBuilder gcnBuilder;
+    auto &dec_rtn = *gcnBuilder.create("ds_dec_rtn_u32");
+    auto retVal = gcnBuilder.newOperand("=v");
+    auto countBaseAddr = gcnBuilder.newOperand(countSmemObj.getBase(), "v");
+    auto wav = gcnBuilder.newOperand(wrapAroundVal, "v");
+    dec_rtn(retVal, countBaseAddr, wav);
+    auto &wait_cnt = *gcnBuilder.create("s_waitcnt lgkmcnt(0)");
+    wait_cnt();
+    auto res = gcnBuilder.launch(rewriter, loc, i32_ty, true /*hasSideEffects*/);
+
+    Value zero = i32_val(0);
+    Value allArrived = icmp_eq(res, zero);
+
+    Block *currentBlock = rewriter.getInsertionBlock();
+    Block *afterPhaseFlipBlock =
+        rewriter.splitBlock(currentBlock, rewriter.getInsertionPoint());
+    Block *phaseFlipBlock = rewriter.createBlock(afterPhaseFlipBlock);
+    rewriter.setInsertionPointToEnd(currentBlock);
+
+    rewriter.create<LLVM::CondBrOp>(loc, allArrived , phaseFlipBlock,
+                                    afterPhaseFlipBlock);
+
+    rewriter.setInsertionPointToStart(phaseFlipBlock);
+    auto phaseBaseAddr = phaseSmemObj.getBase();
+    GCNBuilder gcnBuilder1;
+    Value one = i32_val(1);
+    auto &xor_phase = *gcnBuilder1.create("ds_xor_b32");
+    auto baseAddrArg = gcnBuilder1.newOperand(phaseBaseAddr, "v");
+    auto oneArg = gcnBuilder1.newOperand(one, "v");
+    xor_phase(baseAddrArg, oneArg);
+    gcnBuilder1.launch(rewriter, loc, i32_ty, true /*hasSideEffects*/);
+   
     rewriter.eraseOp(op);
+    llvm::errs() << *currentBlock;
     return success();
   }
 };

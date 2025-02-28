@@ -116,22 +116,23 @@ void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
                                                   barrierPhase, localPhase);
   // builder.create<scf::ConditionOp>(loc, phaseCond, beforeBlock->getArguments());
   builder.create<scf::ConditionOp>(loc, phaseCond, ValueRange{});
-
+  
   // after block
   Block *afterBlock = builder.createBlock(&whileOp.getAfter());
   builder.setInsertionPointToEnd(afterBlock);
-  auto sleepInstrinsic = "llvm.amdgcn.s_sleep 10";
-  auto sleepOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, sleepInstrinsic, TypeRange{}, ValueRange{});
+  auto ten = builder.create<arith::ConstantIntOp>(loc, 10, 32);
+  auto sleepInstrinsic = "llvm.amdgcn.s.sleep";
+  auto sleepOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, sleepInstrinsic, TypeRange{}, ValueRange{ten});
   builder.create<scf::YieldOp>(loc,  ValueRange{});
   // wake up sleeping threads
   builder.setInsertionPointAfter(whileOp);
-  auto wakeupInstrinsic = "llvm.amdgcn.s_wakeup";
+  auto wakeupInstrinsic = "llvm.amdgcn.s.wakeup";
   auto wakeUpOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, wakeupInstrinsic, TypeRange{}, ValueRange{});
 }
 
 void processCommitOpOrReleaseOp(OpBuilder &builder, Operation *op, Value bufferCountView, Value bufferPhaseView, Value threadId) {
   auto loc = op->getLoc();
-  auto threadsPerWave = builder.create<arith::ConstantIntOp>(loc, 64, 32);
+  auto threadsPerWave = builder.create<arith::ConstantIntOp>(loc, 64, 32); 
   auto mod = builder.create<arith::RemSIOp>(loc, threadId, threadsPerWave);
   auto zero = builder.create<arith::ConstantIntOp>(loc, 0, 32);
   auto cond = builder.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq, mod, zero);
@@ -224,11 +225,11 @@ void lowerTokenOperations(Operation *parentOp) {
                                                  op.getIdx(), phaseOffset);
         processAcquireOpOrWaitOp(builder, op, bufferEmptyPhase, true);
       } else if (auto op = dyn_cast<ttng::ProducerCommitOp>(user)) {
-        Value bufferFullPhaseView = createFieldView(builder, loc, bufferFullArray,
-                                                 op.getIdx(), phaseOffset);
-        Value bufferFullCountView = createFieldView(builder, loc, bufferFullArray,
-                                                 op.getIdx(), countOffset);
-        processCommitOpOrReleaseOp(builder, op, bufferFullCountView, bufferFullPhaseView, threadId);
+        // Value bufferFullPhaseView = createFieldView(builder, loc, bufferFullArray,
+        //                                          op.getIdx(), phaseOffset);
+        // Value bufferFullCountView = createFieldView(builder, loc, bufferFullArray,
+        //                                          op.getIdx(), countOffset);
+        // processCommitOpOrReleaseOp(builder, op, bufferFullCountView, bufferFullPhaseView, threadId);
       }
       eraseOps.insert(user);
     }
