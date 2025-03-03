@@ -79,14 +79,14 @@ struct ArriveBarrierOpConversion
     auto oneArg = gcnBuilder1.newOperand(one, "v");
     xor_phase(baseAddrArg, oneArg);
     gcnBuilder1.launch(rewriter, loc, i32_ty, true /*hasSideEffects*/);
-   
+
+    auto br = rewriter.create<LLVM::BrOp>(loc, afterPhaseFlipBlock);
     rewriter.eraseOp(op);
-    llvm::errs() << *currentBlock;
     return success();
   }
 };
 
-} // namespace
+} // namespace  
 
 void mlir::triton::AMD::populateSPMDOpToLLVMPattern(
     LLVMTypeConverter &typeConverter, RewritePatternSet &patterns,

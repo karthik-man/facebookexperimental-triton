@@ -232,7 +232,7 @@ class HIPBackend(BaseBackend):
                                              "equivalent behavior in the past.")
             amd.passes.ttgpuir.add_stream_pipelinev2(pm, options.num_stages)
             passes.common.add_canonicalizer(pm)
-            passes.ttgpuir.add_ws_lowering(pm, options.num_consumer_groups)
+            # passes.ttgpuir.add_ws_lowering(pm, options.num_consumer_groups)
         passes.ttgpuir.add_optimize_dot_operands(pm, True)
         passes.ttgpuir.add_remove_layout_conversions(pm)
         passes.ttgpuir.add_reduce_data_duplication(pm)

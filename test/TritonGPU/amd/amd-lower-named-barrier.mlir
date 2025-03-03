@@ -1,5 +1,6 @@
 // RUN: triton-opt %s --allocate-shared-memory --convert-triton-amdgpu-to-llvm='arch=gfx942' | FileCheck %s
 
+// CHECK: ds_dec_rtn_u32
 module attributes {"triton_gpu.num-ctas" = 1 : i32, "triton_gpu.num-warps" = 8 : i32, triton_gpu.target = "hip:gfx942", "triton_gpu.threads-per-warp" = 64 : i32} {
   tt.func public @foo1() {
     %c0_i32 = arith.constant 0 : i32

@@ -144,7 +144,7 @@ void processCommitOpOrReleaseOp(OpBuilder &builder, Operation *op, Value bufferC
 static const int THREADS_PER_TASK = 64;
 static const int WAVES_PER_TASK = 4;
 void lowerTokenOperations(Operation *parentOp) {
-  DenseSet<Operation *> eraseOps;
+  SmallVector<Operation *> eraseOps;
   parentOp->walk([&](ttng::CreateTokenOp createTokenOp) {
     MLIRContext *context = createTokenOp.getContext();
     OpBuilder builder(createTokenOp);
@@ -196,6 +196,7 @@ void lowerTokenOperations(Operation *parentOp) {
     Value phaseOffset = one;
     Value countOffset = zero;
 
+    llvm::errs() << "create_token: " << createTokenOp << " num: " << createTokenOp.getNum() << "\n";
     for (unsigned barrierIndex = 0; barrierIndex < createTokenOp.getNum();
          barrierIndex++) {
       Value barrierIndexOp =
@@ -213,26 +214,37 @@ void lowerTokenOperations(Operation *parentOp) {
           thenBuilder, loc, bufferEmptyArray, barrierIndexOp, phaseOffset);
       lowerInit(thenBuilder, loc, barrierEmptyCountView, barrierEmptyPhaseView,
                 WAVES_PER_TASK, phaseInitValue, threadId);
-      eraseOps.insert(createTokenOp);
     }
     builder.create<mlir::gpu::BarrierOp>(loc);
 
     for (Operation *user : createTokenOp.getResult().getUsers()) {
       auto loc = user->getLoc();
       builder.setInsertionPoint(user);
+      llvm::errs() << "create_token user: " << *user << "\n";
       if (auto op = dyn_cast<ttng::ProducerAcquireOp>(user)) {
         Value bufferEmptyPhase = createFieldView(builder, loc, bufferEmptyArray,
                                                  op.getIdx(), phaseOffset);
         processAcquireOpOrWaitOp(builder, op, bufferEmptyPhase, true);
+      } else if (auto op = dyn_cast<ttng::ConsumerWaitOp>(user)) {
+        Value bufferFullPhase = createFieldView(builder, loc, bufferEmptyArray,
+                                                 op.getIdx(), phaseOffset);
+        processAcquireOpOrWaitOp(builder, op, bufferFullPhase, false);
       } else if (auto op = dyn_cast<ttng::ProducerCommitOp>(user)) {
-        // Value bufferFullPhaseView = createFieldView(builder, loc, bufferFullArray,
-        //                                          op.getIdx(), phaseOffset);
-        // Value bufferFullCountView = createFieldView(builder, loc, bufferFullArray,
-        //                                          op.getIdx(), countOffset);
-        // processCommitOpOrReleaseOp(builder, op, bufferFullCountView, bufferFullPhaseView, threadId);
+        Value bufferFullPhaseView = createFieldView(builder, loc, bufferFullArray,
+                                                 op.getIdx(), phaseOffset);
+        Value bufferFullCountView = createFieldView(builder, loc, bufferFullArray,
+                                                 op.getIdx(), countOffset);
+        processCommitOpOrReleaseOp(builder, op, bufferFullCountView, bufferFullPhaseView, threadId);
+      } else if (auto op = dyn_cast<ttng::ConsumerReleaseOp>(user)) {
+        Value bufferEmptyPhaseView = createFieldView(builder, loc, bufferEmptyArray,
+                                                 op.getIdx(), phaseOffset);
+        Value bufferEmptyCountView = createFieldView(builder, loc, bufferEmptyArray,
+                                                 op.getIdx(), countOffset);
+        processCommitOpOrReleaseOp(builder, op, bufferEmptyCountView, bufferEmptyPhaseView, threadId);
       }
-      eraseOps.insert(user);
+      eraseOps.push_back(user);
     }
+    eraseOps.push_back(createTokenOp);
   });
 
   for (Operation *op : eraseOps)
