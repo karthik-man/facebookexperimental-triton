@@ -29,6 +29,8 @@
 #include "TritonAMDGPUTransforms/Passes.h"
 
 using namespace mlir;
+using ::mlir::triton::gpu::SharedEncodingAttr;
+
 namespace ttg = mlir::triton::gpu;
 namespace tt = mlir::triton;
 namespace ttng = ::mlir::triton::nvidia_gpu;
@@ -56,20 +58,39 @@ void lowerInit(OpBuilder thenBuilder, Location loc, Value barrierCountView,
                Value threadId) {
   auto initCountOp =
       thenBuilder.create<arith::ConstantIntOp>(loc, initCount, 32);
+  
+  auto viewOp = dyn_cast<ttg::MemDescSubviewOp>(barrierPhaseView.getDefiningOp());
+  auto ctx = thenBuilder.getContext();
+  auto sharedType = viewOp.getType();
+  auto sharedEncoding = dyn_cast<SharedEncodingAttr>(sharedType.getEncoding());
+  ArrayRef<int64_t> phaseShape = {1};
+  auto sizePerThread = 1;
+  auto order = sharedEncoding.getOrder();
+  auto mod = phaseOp.getDefiningOp()->getParentOfType<ModuleOp>();
+  int numWarps = triton::gpu::TritonGPUDialect::getNumWarps(mod);
+  int numCTAs = triton::gpu::TritonGPUDialect::getNumCTAs(mod);
+  int threadsPerWarp = triton::gpu::TritonGPUDialect::getThreadsPerWarp(mod);
 
-  auto countTensorType = RankedTensorType::get({1}, initCountOp.getType());
+  auto blockedEncoding =  triton::gpu::BlockedEncodingAttr::get(
+        ctx, phaseShape, sizePerThread, order, numWarps,
+        threadsPerWarp, numCTAs);
+
+  auto countTensorType = RankedTensorType::get({1}, initCountOp.getType(), blockedEncoding);
   auto countTensorVal =
       thenBuilder.create<triton::SplatOp>(loc, countTensorType, initCountOp);
 
-  auto phaseTensorType = RankedTensorType::get({1}, phaseOp.getType());
+  auto phaseTensorType = RankedTensorType::get({1}, phaseOp.getType(), blockedEncoding);
+  auto ten = thenBuilder.create<arith::ConstantIntOp>(loc, 10, phaseTensorType);
   auto phaseTensorVal =
       thenBuilder.create<triton::SplatOp>(loc, phaseTensorType, phaseOp);
-
+ 
+  
   auto countStoreOp = thenBuilder.create<ttg::LocalStoreOp>(loc, countTensorVal,
                                                             barrierCountView);
   auto phaseStoreOp = thenBuilder.create<ttg::LocalStoreOp>(loc, phaseTensorVal,
                                                             barrierPhaseView);
 }
+
 Value getMBarrierPhaseBit(OpBuilder &builder, Operation *op,
                           bool emptyBarrier) {
   auto loc = op->getLoc();
@@ -89,12 +110,30 @@ Value getMBarrierPhaseBit(OpBuilder &builder, Operation *op,
 }
 
 void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
-                              Value bufferPhaseView, bool isProducer) {
+                              Value barrierPhaseView, bool isProducer) {
   Value localPhase = getMBarrierPhaseBit(builder, op, isProducer);
   auto loc = op->getLoc();
   auto i32Ty = builder.getIntegerType(32);
   localPhase = builder.create<arith::ExtUIOp>(loc, i32Ty, localPhase);
-  auto phaseTensorType = RankedTensorType::get({1}, builder.getI32Type());
+
+  auto viewOp = dyn_cast<ttg::MemDescSubviewOp>(barrierPhaseView.getDefiningOp());
+  auto ctx = builder.getContext();
+  auto sharedType = viewOp.getType();
+  auto sharedEncoding = dyn_cast<SharedEncodingAttr>(sharedType.getEncoding());
+  ArrayRef<int64_t> phaseShape = {1};
+  auto sizePerThread = 1;
+  auto order = sharedEncoding.getOrder();
+  auto mod = op->getParentOfType<ModuleOp>();
+  int numWarps = triton::gpu::TritonGPUDialect::getNumWarps(mod);
+  int numCTAs = triton::gpu::TritonGPUDialect::getNumCTAs(mod);
+  int threadsPerWarp = triton::gpu::TritonGPUDialect::getThreadsPerWarp(mod);
+
+  auto blockedEncoding =  triton::gpu::BlockedEncodingAttr::get(
+        ctx, phaseShape, sizePerThread, order, numWarps,
+        threadsPerWarp, numCTAs);
+
+
+  auto phaseTensorType = RankedTensorType::get({1}, builder.getI32Type(), blockedEncoding);
   auto initialCondition = localPhase;
   // auto whileOp = builder.create<scf::WhileOp>(loc, initialCondition.getType(),
   //                                             initialCondition);
@@ -106,14 +145,14 @@ void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
   builder.setInsertionPointToEnd(beforeBlock);
 
   Value barrierPhaseTensor = builder.create<ttg::LocalLoadOp>(
-      loc, phaseTensorType, bufferPhaseView);
+      loc, phaseTensorType, barrierPhaseView);
   auto index_0 = builder.create<arith::ConstantIndexOp>(loc, 0);
   // SmallVector<Value> index;
   // index.push_back(index_0);
   Value barrierPhase =
       builder.create<mlir::tensor::ExtractOp>(loc, barrierPhaseTensor, ValueRange{index_0});
   Value phaseCond = builder.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                                  barrierPhase, localPhase);
+                                                  barrierPhaseTensor, localPhase);
   // builder.create<scf::ConditionOp>(loc, phaseCond, beforeBlock->getArguments());
   builder.create<scf::ConditionOp>(loc, phaseCond, ValueRange{});
   
@@ -196,7 +235,7 @@ void lowerTokenOperations(Operation *parentOp) {
     Value phaseOffset = one;
     Value countOffset = zero;
 
-    llvm::errs() << "create_token: " << createTokenOp << " num: " << createTokenOp.getNum() << "\n";
+    // llvm::errs() << "create_token: " << createTokenOp << " num: " << createTokenOp.getNum() << "\n";
     for (unsigned barrierIndex = 0; barrierIndex < createTokenOp.getNum();
          barrierIndex++) {
       Value barrierIndexOp =
@@ -220,7 +259,7 @@ void lowerTokenOperations(Operation *parentOp) {
     for (Operation *user : createTokenOp.getResult().getUsers()) {
       auto loc = user->getLoc();
       builder.setInsertionPoint(user);
-      llvm::errs() << "create_token user: " << *user << "\n";
+      // llvm::errs() << "create_token user: " << *user << "\n";
       if (auto op = dyn_cast<ttng::ProducerAcquireOp>(user)) {
         Value bufferEmptyPhase = createFieldView(builder, loc, bufferEmptyArray,
                                                  op.getIdx(), phaseOffset);
@@ -260,7 +299,7 @@ public:
     // llvm::errs() << "pre: " << mod << "\n";
     lowerGetAsyncTaskIdOp(mod);
     lowerTokenOperations(mod);
-    llvm::errs() << "post: " << mod << "\n";
+    // llvm::errs() << "post: " << mod << "\n";
   }
 };
 
