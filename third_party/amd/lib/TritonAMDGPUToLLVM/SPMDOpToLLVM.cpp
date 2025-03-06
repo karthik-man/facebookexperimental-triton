@@ -70,6 +70,7 @@ struct ArriveBarrierOpConversion
     rewriter.create<LLVM::CondBrOp>(loc, allArrived , phaseFlipBlock,
                                     afterPhaseFlipBlock);
 
+    MLIRContext *ctx = rewriter.getContext();
     rewriter.setInsertionPointToStart(phaseFlipBlock);
     auto phaseBaseAddr = phaseSmemObj.getBase();
     GCNBuilder gcnBuilder1;
@@ -78,13 +79,82 @@ struct ArriveBarrierOpConversion
     auto baseAddrArg = gcnBuilder1.newOperand(phaseBaseAddr, "v");
     auto oneArg = gcnBuilder1.newOperand(one, "v");
     xor_phase(baseAddrArg, oneArg);
-    gcnBuilder1.launch(rewriter, loc, i32_ty, true /*hasSideEffects*/);
+    gcnBuilder1.launch(rewriter, loc, void_ty(ctx), true /*hasSideEffects*/);
 
     auto br = rewriter.create<LLVM::BrOp>(loc, afterPhaseFlipBlock);
     rewriter.eraseOp(op);
     return success();
   }
 };
+
+struct InitBarrierOpConversion
+    : public ConvertOpToLLVMPattern<triton::amdgpu::InitBarrierOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(triton::amdgpu::InitBarrierOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    MLIRContext *ctx = rewriter.getContext();
+
+    auto countSmemObj = LLVM::getSharedMemoryObjectFromStruct(
+      op.getLoc(), adaptor.getCountAlloc(),
+      typeConverter->convertType(op.getCountAlloc().getType().getElementType()),
+      rewriter);
+    int count = op.getCount();
+    auto countBaseAddr = countSmemObj.getBase();
+    Value countVal = i32_val(count);
+    GCNBuilder countStoreBuilder;
+    auto &count_store = *countStoreBuilder.create("ds_write_b32");
+    auto baseAddrArg = countStoreBuilder.newOperand(countBaseAddr, "v");
+    auto countArg = countStoreBuilder.newOperand(countVal, "v");
+    count_store(baseAddrArg, countArg);
+    countStoreBuilder.launch(rewriter, loc, void_ty(ctx), true /*hasSideEffects*/);
+
+    auto phaseSmemObj = LLVM::getSharedMemoryObjectFromStruct(
+      op.getLoc(), adaptor.getPhaseAlloc(),
+      typeConverter->convertType(op.getPhaseAlloc().getType().getElementType()),
+      rewriter);
+    int phase = op.getPhase();
+    auto phaseBaseAddr = phaseSmemObj.getBase();
+    Value phaseVal = i32_val(phase);
+    GCNBuilder phaseStoreBuilder;
+    auto &phase_store = *phaseStoreBuilder.create("ds_write_b32");
+    auto phaseAddrArg = phaseStoreBuilder.newOperand(phaseBaseAddr, "v");
+    auto phaseArg = phaseStoreBuilder.newOperand(phaseVal, "v");
+    phase_store(phaseAddrArg, phaseArg);
+    phaseStoreBuilder.launch(rewriter, loc, void_ty(ctx), true /*hasSideEffects*/);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+struct ReadBarrierPhaseOpConversion
+    : public ConvertOpToLLVMPattern<triton::amdgpu::ReadBarrierPhaseOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(triton::amdgpu::ReadBarrierPhaseOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    MLIRContext *ctx = rewriter.getContext();
+
+    auto phaseSmemObj = LLVM::getSharedMemoryObjectFromStruct(
+      op.getLoc(), adaptor.getPhaseAlloc(),
+      typeConverter->convertType(op.getPhaseAlloc().getType().getElementType()),
+      rewriter);
+    auto phaseBaseAddr = phaseSmemObj.getBase();
+    GCNBuilder phaseReadBuilder;
+    auto &phase_read = *phaseReadBuilder.create("ds_read_b32");
+    auto retVal = phaseReadBuilder.newOperand("=v");
+    auto phaseAddrArg = phaseReadBuilder.newOperand(phaseBaseAddr, "v");
+    phase_read(retVal, phaseAddrArg);
+    auto res = phaseReadBuilder.launch(rewriter, loc, i32_ty, true /*hasSideEffects*/);
+    rewriter.replaceOp(op, res);
+    return success();
+   }
+};
+
 
 } // namespace  
 
@@ -93,4 +163,6 @@ void mlir::triton::AMD::populateSPMDOpToLLVMPattern(
     PatternBenefit benefit) {
   patterns.add<GetNumProgramsOpConversion>(typeConverter, benefit);
   patterns.add<ArriveBarrierOpConversion>(typeConverter, benefit);
+  patterns.add<InitBarrierOpConversion>(typeConverter, benefit);
+  patterns.add<ReadBarrierPhaseOpConversion>(typeConverter, benefit);
 }

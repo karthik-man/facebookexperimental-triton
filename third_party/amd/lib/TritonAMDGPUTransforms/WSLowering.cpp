@@ -54,41 +54,42 @@ void lowerGetAsyncTaskIdOp(Operation *parentOp) {
 }
 
 void lowerInit(OpBuilder thenBuilder, Location loc, Value barrierCountView,
-               Value barrierPhaseView, int initCount, Value phaseOp,
+               Value barrierPhaseView, int initCount, int phase,
                Value threadId) {
-  auto initCountOp =
-      thenBuilder.create<arith::ConstantIntOp>(loc, initCount, 32);
+  // auto initCountOp =
+  //     thenBuilder.create<arith::ConstantIntOp>(loc, initCount, 32);
   
-  auto viewOp = dyn_cast<ttg::MemDescSubviewOp>(barrierPhaseView.getDefiningOp());
-  auto ctx = thenBuilder.getContext();
-  auto sharedType = viewOp.getType();
-  auto sharedEncoding = dyn_cast<SharedEncodingAttr>(sharedType.getEncoding());
-  ArrayRef<int64_t> phaseShape = {1};
-  auto sizePerThread = 1;
-  auto order = sharedEncoding.getOrder();
-  auto mod = phaseOp.getDefiningOp()->getParentOfType<ModuleOp>();
-  int numWarps = triton::gpu::TritonGPUDialect::getNumWarps(mod);
-  int numCTAs = triton::gpu::TritonGPUDialect::getNumCTAs(mod);
-  int threadsPerWarp = triton::gpu::TritonGPUDialect::getThreadsPerWarp(mod);
+  // auto viewOp = dyn_cast<ttg::MemDescSubviewOp>(barrierPhaseView.getDefiningOp());
+  // auto ctx = thenBuilder.getContext();
+  // auto sharedType = viewOp.getType();
+  // auto sharedEncoding = dyn_cast<SharedEncodingAttr>(sharedType.getEncoding());
+  // ArrayRef<int64_t> phaseShape = {1};
+  // auto sizePerThread = 1;
+  // auto order = sharedEncoding.getOrder();
+  // auto mod = phaseOp.getDefiningOp()->getParentOfType<ModuleOp>();
+  // int numWarps = triton::gpu::TritonGPUDialect::getNumWarps(mod);
+  // int numCTAs = triton::gpu::TritonGPUDialect::getNumCTAs(mod);
+  // int threadsPerWarp = triton::gpu::TritonGPUDialect::getThreadsPerWarp(mod);
 
-  auto blockedEncoding =  triton::gpu::BlockedEncodingAttr::get(
-        ctx, phaseShape, sizePerThread, order, numWarps,
-        threadsPerWarp, numCTAs);
+  // auto blockedEncoding =  triton::gpu::BlockedEncodingAttr::get(
+  //       ctx, phaseShape, sizePerThread, order, numWarps,
+  //       threadsPerWarp, numCTAs);
 
-  auto countTensorType = RankedTensorType::get({1}, initCountOp.getType(), blockedEncoding);
-  auto countTensorVal =
-      thenBuilder.create<triton::SplatOp>(loc, countTensorType, initCountOp);
+  // auto countTensorType = RankedTensorType::get({1}, initCountOp.getType(), blockedEncoding);
+  // auto countTensorVal =
+  //     thenBuilder.create<triton::SplatOp>(loc, countTensorType, initCountOp);
 
-  auto phaseTensorType = RankedTensorType::get({1}, phaseOp.getType(), blockedEncoding);
-  auto ten = thenBuilder.create<arith::ConstantIntOp>(loc, 10, phaseTensorType);
-  auto phaseTensorVal =
-      thenBuilder.create<triton::SplatOp>(loc, phaseTensorType, phaseOp);
+  // auto phaseTensorType = RankedTensorType::get({1}, phaseOp.getType(), blockedEncoding);
+  // auto ten = thenBuilder.create<arith::ConstantIntOp>(loc, 10, phaseTensorType);
+  // auto phaseTensorVal =
+  //     thenBuilder.create<triton::SplatOp>(loc, phaseTensorType, phaseOp);
  
   
-  auto countStoreOp = thenBuilder.create<ttg::LocalStoreOp>(loc, countTensorVal,
-                                                            barrierCountView);
-  auto phaseStoreOp = thenBuilder.create<ttg::LocalStoreOp>(loc, phaseTensorVal,
-                                                            barrierPhaseView);
+  // auto countStoreOp = thenBuilder.create<ttg::LocalStoreOp>(loc, countTensorVal,
+  //                                                           barrierCountView);
+  // auto phaseStoreOp = thenBuilder.create<ttg::LocalStoreOp>(loc, phaseTensorVal,
+  //                                                           barrierPhaseView);
+  thenBuilder.create<triton::amdgpu::InitBarrierOp>(loc, barrierCountView, initCount, barrierPhaseView, phase);
 }
 
 Value getMBarrierPhaseBit(OpBuilder &builder, Operation *op,
@@ -116,24 +117,24 @@ void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
   auto i32Ty = builder.getIntegerType(32);
   localPhase = builder.create<arith::ExtUIOp>(loc, i32Ty, localPhase);
 
-  auto viewOp = dyn_cast<ttg::MemDescSubviewOp>(barrierPhaseView.getDefiningOp());
-  auto ctx = builder.getContext();
-  auto sharedType = viewOp.getType();
-  auto sharedEncoding = dyn_cast<SharedEncodingAttr>(sharedType.getEncoding());
-  ArrayRef<int64_t> phaseShape = {1};
-  auto sizePerThread = 1;
-  auto order = sharedEncoding.getOrder();
-  auto mod = op->getParentOfType<ModuleOp>();
-  int numWarps = triton::gpu::TritonGPUDialect::getNumWarps(mod);
-  int numCTAs = triton::gpu::TritonGPUDialect::getNumCTAs(mod);
-  int threadsPerWarp = triton::gpu::TritonGPUDialect::getThreadsPerWarp(mod);
+  // auto viewOp = dyn_cast<ttg::MemDescSubviewOp>(barrierPhaseView.getDefiningOp());
+  // auto ctx = builder.getContext();
+  // auto sharedType = viewOp.getType();
+  // auto sharedEncoding = dyn_cast<SharedEncodingAttr>(sharedType.getEncoding());
+  // ArrayRef<int64_t> phaseShape = {1};
+  // auto sizePerThread = 1;
+  // auto order = sharedEncoding.getOrder();
+  // auto mod = op->getParentOfType<ModuleOp>();
+  // int numWarps = triton::gpu::TritonGPUDialect::getNumWarps(mod);
+  // int numCTAs = triton::gpu::TritonGPUDialect::getNumCTAs(mod);
+  // int threadsPerWarp = triton::gpu::TritonGPUDialect::getThreadsPerWarp(mod);
 
-  auto blockedEncoding =  triton::gpu::BlockedEncodingAttr::get(
-        ctx, phaseShape, sizePerThread, order, numWarps,
-        threadsPerWarp, numCTAs);
+  // auto blockedEncoding =  triton::gpu::BlockedEncodingAttr::get(
+  //       ctx, phaseShape, sizePerThread, order, numWarps,
+  //       threadsPerWarp, numCTAs);
 
 
-  auto phaseTensorType = RankedTensorType::get({1}, builder.getI32Type(), blockedEncoding);
+  // auto phaseTensorType = RankedTensorType::get({1}, builder.getI32Type(), blockedEncoding);
   auto initialCondition = localPhase;
   // auto whileOp = builder.create<scf::WhileOp>(loc, initialCondition.getType(),
   //                                             initialCondition);
@@ -144,15 +145,14 @@ void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
   // auto conditionArg = beforeBlock->addArgument(i32Ty, loc);
   builder.setInsertionPointToEnd(beforeBlock);
 
-  Value barrierPhaseTensor = builder.create<ttg::LocalLoadOp>(
-      loc, phaseTensorType, barrierPhaseView);
-  auto index_0 = builder.create<arith::ConstantIndexOp>(loc, 0);
-  // SmallVector<Value> index;
-  // index.push_back(index_0);
-  Value barrierPhase =
-      builder.create<mlir::tensor::ExtractOp>(loc, barrierPhaseTensor, ValueRange{index_0});
+  // Value barrierPhaseTensor = builder.create<ttg::LocalLoadOp>(
+  //     loc, phaseTensorType, barrierPhaseView);
+  // auto index_0 = builder.create<arith::ConstantIndexOp>(loc, 0);
+  // Value barrierPhase =
+  //     builder.create<mlir::tensor::ExtractOp>(loc, barrierPhaseTensor, ValueRange{index_0});
+  Value barrierPhase = builder.create<triton::amdgpu::ReadBarrierPhaseOp>(loc, i32Ty, barrierPhaseView);
   Value phaseCond = builder.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                                  barrierPhaseTensor, localPhase);
+                                                  barrierPhase, localPhase);
   // builder.create<scf::ConditionOp>(loc, phaseCond, beforeBlock->getArguments());
   builder.create<scf::ConditionOp>(loc, phaseCond, ValueRange{});
   
@@ -165,8 +165,8 @@ void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
   builder.create<scf::YieldOp>(loc,  ValueRange{});
   // wake up sleeping threads
   builder.setInsertionPointAfter(whileOp);
-  auto wakeupInstrinsic = "llvm.amdgcn.s.wakeup";
-  auto wakeUpOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, wakeupInstrinsic, TypeRange{}, ValueRange{});
+  // auto wakeupInstrinsic = "llvm.amdgcn.s.wakeup";
+  // auto wakeUpOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, wakeupInstrinsic, TypeRange{}, ValueRange{});
 }
 
 void processCommitOpOrReleaseOp(OpBuilder &builder, Operation *op, Value bufferCountView, Value bufferPhaseView, Value threadId) {
@@ -235,7 +235,7 @@ void lowerTokenOperations(Operation *parentOp) {
     Value phaseOffset = one;
     Value countOffset = zero;
 
-    // llvm::errs() << "create_token: " << createTokenOp << " num: " << createTokenOp.getNum() << "\n";
+    llvm::errs() << "create_token: " << createTokenOp << " num: " << createTokenOp.getNum() << "\n";
     for (unsigned barrierIndex = 0; barrierIndex < createTokenOp.getNum();
          barrierIndex++) {
       Value barrierIndexOp =
@@ -245,16 +245,16 @@ void lowerTokenOperations(Operation *parentOp) {
       Value barrierFullPhaseView = createFieldView(
           thenBuilder, loc, bufferFullArray, barrierIndexOp, phaseOffset);
       lowerInit(thenBuilder, loc, barrierFullCountView, barrierFullPhaseView,
-                WAVES_PER_TASK, phaseInitValue, threadId);
+                WAVES_PER_TASK, 0, threadId);
 
       Value barrierEmptyCountView = createFieldView(
           thenBuilder, loc, bufferEmptyArray, barrierIndexOp, countOffset);
       Value barrierEmptyPhaseView = createFieldView(
           thenBuilder, loc, bufferEmptyArray, barrierIndexOp, phaseOffset);
       lowerInit(thenBuilder, loc, barrierEmptyCountView, barrierEmptyPhaseView,
-                WAVES_PER_TASK, phaseInitValue, threadId);
+                WAVES_PER_TASK, 0, threadId);
     }
-    builder.create<mlir::gpu::BarrierOp>(loc);
+    // builder.create<mlir::gpu::BarrierOp>(loc);
 
     for (Operation *user : createTokenOp.getResult().getUsers()) {
       auto loc = user->getLoc();
