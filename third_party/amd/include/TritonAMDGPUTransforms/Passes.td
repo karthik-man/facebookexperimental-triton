@@ -131,6 +131,11 @@ def TritonAMDGPUWSLowering : Pass<"tritonamdgpu-ws-lowering", "mlir::ModuleOp"> 
     let dependentDialects = ["mlir::ROCDL::ROCDLDialect",
                              "mlir::triton::gpu::TritonGPUDialect",
                              "mlir::triton::amdgpu::TritonAMDGPUDialect"];
+    let options = [
+    Option<"numConsumerGroups", "num-consumer-groups",
+           "int32_t", /*default*/"1",
+           "number of consumer warp groups for warp specialization">,
+  ];
 }
 
 #endif

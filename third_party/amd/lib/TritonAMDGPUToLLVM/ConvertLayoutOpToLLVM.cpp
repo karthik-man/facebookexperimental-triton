@@ -47,7 +47,6 @@ LocalLoadOpConversion(LLVMTypeConverter &typeConverter,
     RankedTensorType dstTy = op.getType();
     Attribute srcLayout = srcTy.getEncoding();
     Attribute dstLayout = dstTy.getEncoding();
-    llvm::errs() << "LocalLoadOpConversion: " << op << "\n";
     if (isa<DotOperandEncodingAttr>(dstLayout) &&
         isa<AMDMfmaEncodingAttr, AMDWmmaEncodingAttr>(
             cast<DotOperandEncodingAttr>(dstLayout).getParent())) {

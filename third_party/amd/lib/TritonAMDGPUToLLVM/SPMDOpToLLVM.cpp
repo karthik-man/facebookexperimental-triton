@@ -123,6 +123,8 @@ struct InitBarrierOpConversion
     auto phaseAddrArg = phaseStoreBuilder.newOperand(phaseBaseAddr, "v");
     auto phaseArg = phaseStoreBuilder.newOperand(phaseVal, "v");
     phase_store(phaseAddrArg, phaseArg);
+    auto &wait_cnt = *phaseStoreBuilder.create("s_waitcnt lgkmcnt(0)");
+    wait_cnt();
     phaseStoreBuilder.launch(rewriter, loc, void_ty(ctx), true /*hasSideEffects*/);
     rewriter.eraseOp(op);
     return success();
@@ -149,6 +151,8 @@ struct ReadBarrierPhaseOpConversion
     auto retVal = phaseReadBuilder.newOperand("=v");
     auto phaseAddrArg = phaseReadBuilder.newOperand(phaseBaseAddr, "v");
     phase_read(retVal, phaseAddrArg);
+    auto &wait_cnt = *phaseReadBuilder.create("s_waitcnt lgkmcnt(0)");
+    wait_cnt();
     auto res = phaseReadBuilder.launch(rewriter, loc, i32_ty, true /*hasSideEffects*/);
     rewriter.replaceOp(op, res);
     return success();

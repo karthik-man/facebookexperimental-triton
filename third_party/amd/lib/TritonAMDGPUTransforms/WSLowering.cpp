@@ -235,39 +235,39 @@ void lowerTokenOperations(Operation *parentOp) {
     Value phaseOffset = one;
     Value countOffset = zero;
 
-    llvm::errs() << "create_token: " << createTokenOp << " num: " << createTokenOp.getNum() << "\n";
+    // llvm::errs() << "create_token: " << createTokenOp << " num: " << createTokenOp.getNum() << "\n";
     for (unsigned barrierIndex = 0; barrierIndex < createTokenOp.getNum();
          barrierIndex++) {
       Value barrierIndexOp =
           thenBuilder.create<arith::ConstantIntOp>(loc, barrierIndex, 32);
-      Value barrierFullCountView = createFieldView(
+      Value bufferFullCountView = createFieldView(
           thenBuilder, loc, bufferFullArray, barrierIndexOp, countOffset);
-      Value barrierFullPhaseView = createFieldView(
+      Value bufferFullPhaseView = createFieldView(
           thenBuilder, loc, bufferFullArray, barrierIndexOp, phaseOffset);
-      lowerInit(thenBuilder, loc, barrierFullCountView, barrierFullPhaseView,
-                WAVES_PER_TASK, 0, threadId);
+      lowerInit(thenBuilder, loc, bufferFullCountView, bufferFullPhaseView,
+                WAVES_PER_TASK - 1, 0, threadId);
 
-      Value barrierEmptyCountView = createFieldView(
+      Value bufferEmptyCountView = createFieldView(
           thenBuilder, loc, bufferEmptyArray, barrierIndexOp, countOffset);
-      Value barrierEmptyPhaseView = createFieldView(
+      Value bufferEmptyPhaseView = createFieldView(
           thenBuilder, loc, bufferEmptyArray, barrierIndexOp, phaseOffset);
-      lowerInit(thenBuilder, loc, barrierEmptyCountView, barrierEmptyPhaseView,
-                WAVES_PER_TASK, 0, threadId);
+      lowerInit(thenBuilder, loc, bufferEmptyCountView, bufferEmptyPhaseView,
+                WAVES_PER_TASK - 1, 0, threadId);
     }
-    // builder.create<mlir::gpu::BarrierOp>(loc);
+    builder.create<mlir::gpu::BarrierOp>(loc);
 
     for (Operation *user : createTokenOp.getResult().getUsers()) {
       auto loc = user->getLoc();
       builder.setInsertionPoint(user);
       // llvm::errs() << "create_token user: " << *user << "\n";
       if (auto op = dyn_cast<ttng::ProducerAcquireOp>(user)) {
-        Value bufferEmptyPhase = createFieldView(builder, loc, bufferEmptyArray,
+        Value bufferEmptyPhaseView = createFieldView(builder, loc, bufferEmptyArray,
                                                  op.getIdx(), phaseOffset);
-        processAcquireOpOrWaitOp(builder, op, bufferEmptyPhase, true);
+        processAcquireOpOrWaitOp(builder, op, bufferEmptyPhaseView, true);
       } else if (auto op = dyn_cast<ttng::ConsumerWaitOp>(user)) {
-        Value bufferFullPhase = createFieldView(builder, loc, bufferEmptyArray,
+        Value bufferFullPhaseView = createFieldView(builder, loc, bufferFullArray,
                                                  op.getIdx(), phaseOffset);
-        processAcquireOpOrWaitOp(builder, op, bufferFullPhase, false);
+        processAcquireOpOrWaitOp(builder, op, bufferFullPhaseView, false);
       } else if (auto op = dyn_cast<ttng::ProducerCommitOp>(user)) {
         Value bufferFullPhaseView = createFieldView(builder, loc, bufferFullArray,
                                                  op.getIdx(), phaseOffset);
@@ -289,22 +289,26 @@ void lowerTokenOperations(Operation *parentOp) {
   for (Operation *op : eraseOps)
     op->erase();
 }
+} // namespace
+
 
 class TritonAMDGPUWSLoweringPass
     : public TritonAMDGPUWSLoweringBase<TritonAMDGPUWSLoweringPass> {
 public:
   TritonAMDGPUWSLoweringPass() = default;
+  TritonAMDGPUWSLoweringPass(int numConsumerGroups) { this->numConsumerGroups = numConsumerGroups; }
   void runOnOperation() override {
     ModuleOp mod = getOperation();
     // llvm::errs() << "pre: " << mod << "\n";
     lowerGetAsyncTaskIdOp(mod);
     lowerTokenOperations(mod);
     // llvm::errs() << "post: " << mod << "\n";
+    auto builder = OpBuilder::atBlockBegin(mod.getBody());
+    mod->setAttr("triton_gpu.num-warp-groups-per-cta",
+                 builder.getI32IntegerAttr(1 + numConsumerGroups));
   }
 };
 
-} // namespace
-
-std::unique_ptr<Pass> mlir::createTritonAMDGPUWSLoweringPass() {
-  return std::make_unique<TritonAMDGPUWSLoweringPass>();
+std::unique_ptr<Pass> mlir::createTritonAMDGPUWSLoweringPass(int numConsumerGroups) {
+  return std::make_unique<TritonAMDGPUWSLoweringPass>(numConsumerGroups);
 }
