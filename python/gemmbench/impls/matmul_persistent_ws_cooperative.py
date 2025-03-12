@@ -13,8 +13,8 @@ import triton.language as tl
     configs=[
         triton.Config(
             {
-                "BLOCK_SIZE_M": 64,
-                "BLOCK_SIZE_N": 64,
+                "BLOCK_SIZE_M": 128,
+                "BLOCK_SIZE_N": 128,
                 "BLOCK_SIZE_K": 16,
                 "GROUP_SIZE_M": 4,
                 'waves_per_eu': 3,

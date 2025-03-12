@@ -37,6 +37,9 @@ namespace ttng = ::mlir::triton::nvidia_gpu;
 
 namespace {
 
+static const int THREADS_PER_WAVE = 64;
+static const int WAVES_PER_TASK = 4;
+
 void lowerGetAsyncTaskIdOp(Operation *parentOp) {
   DenseSet<Operation *> eraseOps;
   parentOp->walk([&](ttng::GetAsyncTaskIdOp op) {
@@ -44,7 +47,7 @@ void lowerGetAsyncTaskIdOp(Operation *parentOp) {
     OpBuilder builder(op);
     auto i32ty = builder.getIntegerType(32);
     auto workIDX = builder.create<ROCDL::ThreadIdXOp>(loc, i32ty);
-    auto constWaveSize = builder.create<arith::ConstantIntOp>(loc, 64, 32);
+    auto constWaveSize = builder.create<arith::ConstantIntOp>(loc, THREADS_PER_WAVE * WAVES_PER_TASK, 32);
     auto warpIDX = builder.create<arith::DivSIOp>(loc, workIDX, constWaveSize);
     op.getResult().replaceAllUsesWith(warpIDX);
     eraseOps.insert(op);
@@ -171,7 +174,7 @@ void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
 
 void processCommitOpOrReleaseOp(OpBuilder &builder, Operation *op, Value bufferCountView, Value bufferPhaseView, Value threadId) {
   auto loc = op->getLoc();
-  auto threadsPerWave = builder.create<arith::ConstantIntOp>(loc, 64, 32); 
+  auto threadsPerWave = builder.create<arith::ConstantIntOp>(loc, THREADS_PER_WAVE, 32); 
   auto mod = builder.create<arith::RemSIOp>(loc, threadId, threadsPerWave);
   auto zero = builder.create<arith::ConstantIntOp>(loc, 0, 32);
   auto cond = builder.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq, mod, zero);
@@ -180,8 +183,6 @@ void processCommitOpOrReleaseOp(OpBuilder &builder, Operation *op, Value bufferC
   thenBuilder.create<triton::amdgpu::ArriveBarrierOp>(loc, bufferCountView, bufferPhaseView);
 }
 
-static const int THREADS_PER_TASK = 64;
-static const int WAVES_PER_TASK = 4;
 void lowerTokenOperations(Operation *parentOp) {
   SmallVector<Operation *> eraseOps;
   parentOp->walk([&](ttng::CreateTokenOp createTokenOp) {
