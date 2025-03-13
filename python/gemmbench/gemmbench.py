@@ -89,11 +89,11 @@ impl_map = {fn.__name__: fn for fn in test_impls}
 
 def test():
     torch.manual_seed(0)
-    m = 1024
-    n = 1024
-    k = 32
-    a = torch.ones((m, k), device="cuda", dtype=torch.float16)
-    b = torch.ones((k, n), device="cuda", dtype=torch.float16)
+    m = 128
+    n = 128
+    k = 16
+    a = torch.rand((m, k), device="cuda", dtype=torch.float16)
+    b = torch.rand((k, n), device="cuda", dtype=torch.float16)
     torch_output = torch.matmul(a, b)
     # Bigger tolerance for AMD MI200 devices.
     # MI200 devices use reduced precision fp16 and bf16 and flush input and
