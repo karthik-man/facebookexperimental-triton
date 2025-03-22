@@ -44,8 +44,9 @@ struct ArriveBarrierOpConversion
       op.getLoc(), adaptor.getPhase(),
       typeConverter->convertType(op.getPhase().getType().getElementType()),
       rewriter);
-
-    auto wrapAroundVal = LLVM::createConstantI32(loc, rewriter, 1);
+    // TBD - pass wraparound value through the ttgir OP
+    // set wraparound to WAVES_PER_TASK - 1 (3)
+    auto wrapAroundVal = LLVM::createConstantI32(loc, rewriter, 3);
 
 
     GCNBuilder gcnBuilder;
@@ -82,7 +83,7 @@ struct ArriveBarrierOpConversion
     gcnBuilder1.launch(rewriter, loc, void_ty(ctx), true /*hasSideEffects*/);
 
     auto br = rewriter.create<LLVM::BrOp>(loc, afterPhaseFlipBlock);
-    rewriter.eraseOp(op);
+    rewriter.replaceOp(op, res);
     return success();
   }
 };

@@ -89,7 +89,7 @@ def ArriveBarrierOp : TT_AMDGPU_Op<"arrive_barrier",  [MemoryEffects<[MemWrite<S
                    TT_MemDescType:$count,
                    TT_MemDescType:$phase
                   );
-
+  let results = (outs I32:$result);
   let assemblyFormat = "operands attr-dict `:` type(operands)";
 }
 

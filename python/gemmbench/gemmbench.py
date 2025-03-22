@@ -89,9 +89,9 @@ impl_map = {fn.__name__: fn for fn in test_impls}
 
 def test():
     torch.manual_seed(0)
-    m = 128
-    n = 128
-    k = 16
+    m = 512
+    n = 512
+    k = 512
     a = torch.rand((m, k), device="cuda", dtype=torch.float16)
     b = torch.rand((k, n), device="cuda", dtype=torch.float16)
     torch_output = torch.matmul(a, b)
@@ -139,7 +139,7 @@ elif GEMM_SHAPES == "llama":
 else:
     # Simple shape with 4 waves over 132 SMs
     # x_vals = [(4 * 11 * 128, 12 * 256, 4096)]
-        x_vals = [(64, 64, 4096)]
+        x_vals = [(4096, 4096, 4096)]
 
 
 
@@ -183,4 +183,4 @@ def benchmark(M, N, K, provider, fp8_inputs):
 
 
 test()
-# benchmark.run(show_plots=True, print_data=True, save_path=f"./{GEMM_SHAPES}")
+benchmark.run(show_plots=True, print_data=True, save_path=f"./{GEMM_SHAPES}")
