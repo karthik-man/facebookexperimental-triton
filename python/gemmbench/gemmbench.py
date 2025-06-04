@@ -87,13 +87,25 @@ test_impls = [
 impl_map = {fn.__name__: fn for fn in test_impls}
 
 
+
+
 def test():
     torch.manual_seed(0)
-    m = 4096
-    n = 4096
-    k = 4096
-    a = torch.rand((m, k), device="cuda", dtype=torch.float16)
-    b = torch.rand((k, n), device="cuda", dtype=torch.float16)
+    m = 128
+    n = 128
+    k = 64
+    k_tmp = [i / 1.0 for i in range(1, k + 1)]
+    m_tmp = [list(map(lambda x: x + i, k_tmp)) for i in range(m)]
+    n_tmp = [list(map(lambda x: x + i, k_tmp)) for i in range(n)]
+
+    a = torch.randn((m, k), device="cuda", dtype=torch.float16)
+    # a = torch.tensor(m_tmp, device="cuda", dtype=torch.float16)
+    # a = torch.ones((m, n), device="cuda", dtype=torch.float16)
+
+    b = torch.randn((k, n), device="cuda", dtype=torch.float16)
+    # b = torch.ones((k, n), device="cuda", dtype=torch.float16)
+    # b = torch.tensor(n_tmp, device="cuda", dtype=torch.float16).transpose(0, 1)
+
     torch_output = torch.matmul(a, b)
     # Bigger tolerance for AMD MI200 devices.
     # MI200 devices use reduced precision fp16 and bf16 and flush input and
@@ -103,14 +115,38 @@ def test():
         triton_output = fn(a, b)
         torch.cuda.synchronize()
         if torch.allclose(triton_output, torch_output, atol=1e-2, rtol=1e-3):
-            print(f" Torch matches {fn.__name__}")
+            print(f" Torch matches {fn.__name__} for {m}x{n}x{k}")
+            print("a row ", a[0])
+            print("b col ", b.transpose(0, 1)[0])
+            print("dot out ", torch.dot(a[0], b.transpose(0, 1)[0]))
+            print("torch output [0,0]: ", torch_output[0, 0])
+            print(f"{fn.__name__} output [0,0]: ", triton_output[0, 0])
+            # print("a row ", a[0])
+            # print("b col ", b.transpose(0, 1)[0])
+            # print("torch output [0,0]: ", torch_output[0, 0])
+            # print("triton output [0,0]: ", triton_output[0, 0])
         else:
+            print(f" Torch MISMATCH {fn.__name__} for {m}x{n}x{k}")
+            is_close = torch.isclose(triton_output, torch_output, atol=1e-2, rtol=1e-3)
+            print("a row ", a[0])
+            print("b col ", b.transpose(0, 1)[0])
+            print("torch output [0,0]: ", torch_output[0, 0])
+            print(f"{fn.__name__} output [0,0]: ", triton_output[0, 0])
+            for i in range(is_close.size(0)):
+                for j in range(is_close.size(1)):
+                    if is_close[i, j] == False:
+                        pass
+                        # print(
+                        #     # f"Accuracy check failed at {i, j}: {triton_output[i, j]} vs {torch_output[i, j]}"
+                        # )
             print(f" Torch DOES NOT match {fn.__name__}")
             print("torch output:")
             print(torch_output)
             print("triton output:")
             print(triton_output)
-            #torch.testing.assert_close(triton_output, torch_output, atol=1e-2, rtol=rtol)
+            torch.testing.assert_close(
+                triton_output, torch_output, atol=1e-2, rtol=1e-3
+            )
 
 
 TORCH_HAS_FP8 = False  # hasattr(torch, "float8_e5m2")
@@ -138,9 +174,8 @@ elif GEMM_SHAPES == "llama":
     x_vals = [(m, n, k) for m in [128, 256, 384, 512] for (k, n) in KN]
 else:
     # Simple shape with 4 waves over 132 SMs
-    x_vals = [(4 * 11 * 128, 12 * 256, 4096)]
-        # x_vals = [(8192, 8192, 8192)]
-
+    x_vals = [(128, 128, 64)]
+    # x_vals = [(8192, 8192, 8192)]
 
 
 configs = []
@@ -177,10 +212,12 @@ def benchmark(M, N, K, provider, fp8_inputs):
         b = b.to(torch.float8_e5m2)
     quantiles = [0.5, 0.2, 0.8]
     fn = impl_map[provider]
-    ms, min_ms, max_ms = triton.testing.do_bench_cudagraph(lambda: fn(a, b), quantiles=quantiles, rep=1)
+    ms, min_ms, max_ms = triton.testing.do_bench_cudagraph(
+        lambda: fn(a, b), quantiles=quantiles, rep=1
+    )
     perf = lambda ms: 2 * M * N * K * 1e-12 / (ms * 1e-3)
     return perf(ms), perf(max_ms), perf(min_ms)
 
 
 test()
-benchmark.run(show_plots=True, print_data=True, save_path=f"./{GEMM_SHAPES}")
+# benchmark.run(show_plots=True, print_data=True, save_path=f"./{GEMM_SHAPES}")

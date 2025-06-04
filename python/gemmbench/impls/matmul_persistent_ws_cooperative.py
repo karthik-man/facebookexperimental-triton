@@ -18,7 +18,7 @@ import triton.language as tl
         #         "BLOCK_SIZE_K": 16,
         #         "GROUP_SIZE_M": 4,
         #         'waves_per_eu': 2,
-        #     },
+        #     }, 
         #     num_stages=2,
         #     num_warps=8,
         #     # num_consumer_groups=2,
@@ -26,15 +26,15 @@ import triton.language as tl
         # ),
         triton.Config(
             {
-                "BLOCK_SIZE_M": 256,
+                "BLOCK_SIZE_M": 128,
                 "BLOCK_SIZE_N": 128,
                 "BLOCK_SIZE_K": 64,
-                "GROUP_SIZE_M": 4,
-                'waves_per_eu': 2,
+                "GROUP_SIZE_M": 32,
+                'waves_per_eu': 0,
             },
             num_stages=1,
             num_warps=4,
-            num_consumer_groups=2,
+            num_consumer_groups=1,
             num_buffers_warp_spec=1
         ),
     ],
@@ -108,7 +108,6 @@ def matmul_persistent_ws_cooperative_kernel(
             b = tl.load(
                 b_ptrs, mask=offs_k[:, None] < K - k * BLOCK_SIZE_K, other=0.0
             )
-
             accumulator1 += tl.dot(a1, b)
             a_ptrs1 += BLOCK_SIZE_K * stride_ak
             b_ptrs += BLOCK_SIZE_K * stride_bk
@@ -121,6 +120,10 @@ def matmul_persistent_ws_cooperative_kernel(
         c_mask1 = (offs_cm1[:, None] < M) & (offs_cn[None, :] < N)
         tl.store(c_ptrs1, c1, mask=c_mask1)
 
+import functools
+@functools.lru_cache
+def print_hash(hash):
+    print("Hash: ", hash)
 
 def matmul_persistent_ws_cooperative(a, b, activation=""):
     # Check constraints.
@@ -139,7 +142,8 @@ def matmul_persistent_ws_cooperative(a, b, activation=""):
             triton.cdiv(M, META["BLOCK_SIZE_M"]) * triton.cdiv(N, META["BLOCK_SIZE_N"]),
         ),
     )
-    k = matmul_persistent_ws_cooperative_kernel[grid](
+    grid_1 = (1, )
+    k = matmul_persistent_ws_cooperative_kernel[grid_1](
         a,
         b,
         c,  #
@@ -154,5 +158,5 @@ def matmul_persistent_ws_cooperative(a, b, activation=""):
         c.stride(1),  #
         ACTIVATION=activation,  #
     )
-    print("hash ", k.metadata.hash)
+    print_hash(k.metadata.hash)
     return c
