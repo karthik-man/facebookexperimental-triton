@@ -26,16 +26,16 @@ import triton.language as tl
         # ),
         triton.Config(
             {
-                "BLOCK_SIZE_M": 128,
-                "BLOCK_SIZE_N": 128,
-                "BLOCK_SIZE_K": 64,
+                "BLOCK_SIZE_M": 256,
+                "BLOCK_SIZE_N": 256,
+                "BLOCK_SIZE_K": 16,
                 "GROUP_SIZE_M": 32,
-                'waves_per_eu': 0,
+                'waves_per_eu': 3,
             },
             num_stages=1,
             num_warps=4,
-            num_consumer_groups=1,
-            num_buffers_warp_spec=1
+            num_consumer_groups=2,
+            num_buffers_warp_spec=2
         ),
     ],
     key=["M", "N", "K"],
@@ -142,8 +142,8 @@ def matmul_persistent_ws_cooperative(a, b, activation=""):
             triton.cdiv(M, META["BLOCK_SIZE_M"]) * triton.cdiv(N, META["BLOCK_SIZE_N"]),
         ),
     )
-    grid_1 = (1, )
-    k = matmul_persistent_ws_cooperative_kernel[grid_1](
+    # grid_1 = (1, )
+    k = matmul_persistent_ws_cooperative_kernel[grid](
         a,
         b,
         c,  #

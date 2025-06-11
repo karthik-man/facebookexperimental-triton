@@ -87,13 +87,16 @@ test_impls = [
 impl_map = {fn.__name__: fn for fn in test_impls}
 
 
+M = 5632
+N = 3072
+K = 4096
 
 
 def test():
     torch.manual_seed(0)
-    m = 128
-    n = 128
-    k = 64
+    m = M
+    n = N
+    k = K
     k_tmp = [i / 1.0 for i in range(1, k + 1)]
     m_tmp = [list(map(lambda x: x + i, k_tmp)) for i in range(m)]
     n_tmp = [list(map(lambda x: x + i, k_tmp)) for i in range(n)]
@@ -116,15 +119,11 @@ def test():
         torch.cuda.synchronize()
         if torch.allclose(triton_output, torch_output, atol=1e-2, rtol=1e-3):
             print(f" Torch matches {fn.__name__} for {m}x{n}x{k}")
-            print("a row ", a[0])
-            print("b col ", b.transpose(0, 1)[0])
-            print("dot out ", torch.dot(a[0], b.transpose(0, 1)[0]))
-            print("torch output [0,0]: ", torch_output[0, 0])
-            print(f"{fn.__name__} output [0,0]: ", triton_output[0, 0])
             # print("a row ", a[0])
             # print("b col ", b.transpose(0, 1)[0])
+            # print("dot out ", torch.dot(a[0], b.transpose(0, 1)[0]))
             # print("torch output [0,0]: ", torch_output[0, 0])
-            # print("triton output [0,0]: ", triton_output[0, 0])
+            # print(f"{fn.__name__} output [0,0]: ", triton_output[0, 0])
         else:
             print(f" Torch MISMATCH {fn.__name__} for {m}x{n}x{k}")
             is_close = torch.isclose(triton_output, torch_output, atol=1e-2, rtol=1e-3)
@@ -174,8 +173,8 @@ elif GEMM_SHAPES == "llama":
     x_vals = [(m, n, k) for m in [128, 256, 384, 512] for (k, n) in KN]
 else:
     # Simple shape with 4 waves over 132 SMs
-    x_vals = [(128, 128, 64)]
-    # x_vals = [(8192, 8192, 8192)]
+    # x_vals = [(128, 128, 64)]
+    x_vals = [(M, N, K)]
 
 
 configs = []
@@ -220,4 +219,4 @@ def benchmark(M, N, K, provider, fp8_inputs):
 
 
 test()
-# benchmark.run(show_plots=True, print_data=True, save_path=f"./{GEMM_SHAPES}")
+benchmark.run(show_plots=True, print_data=True, save_path=f"./{GEMM_SHAPES}")
