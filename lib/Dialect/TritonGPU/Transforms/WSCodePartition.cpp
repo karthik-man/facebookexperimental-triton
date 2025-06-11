@@ -2298,6 +2298,56 @@ createAsyncCopy(const DenseMap<Channel *, Value> &bufferMap, Channel *c,
   loadOp.erase();
   return {copy, sharedLoad};
 }
+static std::optional<ttg::SharedEncodingAttr>
+getSharedEncIfAllUsersAreDotEnc(Value val) {
+  ttg::SharedEncodingAttr attr;
+  for (Operation *user : val.getUsers()) {
+    ttg::SharedEncodingAttr tempAttr;
+    if (user->getNumResults() != 1)
+      return std::nullopt;
+    if (auto memDesc =
+            dyn_cast<triton::MemDescType>(user->getResult(0).getType())) {
+      // First time we find a shared encoding in the chain, save it and try to
+      // use it if it is compatible with the other users.
+      tempAttr = cast<ttg::SharedEncodingAttr>(memDesc.getEncoding());
+      if (!getSharedEncIfAllUsersAreDotEnc(user->getResult(0)).has_value())
+        return std::nullopt;
+    } else {
+      if (!isa<ttg::LocalLoadOp, ttg::ConvertLayoutOp>(user))
+        return std::nullopt;
+      auto dotOpEnc = dyn_cast<ttg::DotOperandEncodingAttr>(
+          cast<TensorOrMemDesc>(user->getResult(0).getType()).getEncoding());
+      if (!dotOpEnc)
+        return std::nullopt;
+      auto srcTy = cast<TensorOrMemDesc>(val.getType());
+      auto CTALayout = ttg::getCTALayout(srcTy.getEncoding());
+      auto order = ttg::getOrder(srcTy.getEncoding());
+      unsigned bitWidth = srcTy.getElementType().getIntOrFloatBitWidth();
+      SmallVector<unsigned> sharedOrder;
+      int rank = order.size();
+      // TODO rework this when shared -> dotOp conversions support arbitrary
+      // shared memory ordering
+      if (rank == 3) {
+        // Move the batch dimension (dim #0) to be the last so that it will be
+        // the slowest varying dimension.
+        for (unsigned i = 0; i < rank; ++i)
+          if (order[i] != 0)
+            sharedOrder.emplace_back(order[i]);
+        sharedOrder.emplace_back(0);
+      } else {
+        sharedOrder = order;
+      }
+      tempAttr = ttg::SharedEncodingAttr::get(
+          val.getContext(), dotOpEnc, srcTy.getShape(), sharedOrder, CTALayout,
+          bitWidth, /*needTrans=*/false);
+    }
+    // Check that the shared encodings needed by the users are compatible.
+    if (!tempAttr || (attr != nullptr && attr != tempAttr))
+      return std::nullopt;
+    attr = tempAttr;
+  }
+  return attr;
+}
 
 // Create a local copy for a channel that is populated by the producer and
 // accessed by the consumer.
@@ -2320,8 +2370,13 @@ createLocalCopy(const DenseMap<Channel *, Value> &bufferMap, Channel *channel,
 
   // Get shape, layout and type of a slice
   auto sliceShape = tensorType.getShape();
-  auto sharedLayout = ttg::SharedEncodingAttr::get(context, sliceShape, order,
-                                                   CTALayout, elemType);
+  
+  // AMD Hack 
+  assert(isa<tt::LoadOp>(srcOp) && "Unexpected producer");
+  auto sharedLayout = getSharedEncIfAllUsersAreDotEnc(srcOp->getResult(0)).value_or(nullptr);
+  // auto sharedLayout = ttg::SharedEncodingAttr::get(context, sliceShape, order,
+  //                                                  CTALayout, elemType);
+  
   auto sliceType = RankedTensorType::get(sliceShape, elemType, sharedLayout);
 
   Attribute sharedMemorySpace =
@@ -2330,7 +2385,7 @@ createLocalCopy(const DenseMap<Channel *, Value> &bufferMap, Channel *channel,
       tt::MemDescType::get(sliceType.getShape(), sliceType.getElementType(),
                            sliceType.getEncoding(), sharedMemorySpace,
                            /*mutableMemory=*/true);
-
+  
   // Consumer part.
   OpBuilderWithAsyncTaskIds builder(dstOp);
   builder.setAsyncTaskIdsFromOp(dstOp);
