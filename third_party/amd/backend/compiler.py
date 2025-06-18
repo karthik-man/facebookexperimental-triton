@@ -237,12 +237,12 @@ class HIPBackend(BaseBackend):
         passes.ttgpuir.add_remove_layout_conversions(pm)
         passes.ttgpuir.add_reduce_data_duplication(pm)
         amd.passes.ttgpuir.add_ws_lowering(pm, options.num_consumer_groups)
-        # if amd.has_matrix_core_feature(options.arch):
-        #     amd.passes.ttgpuir.add_reorder_instructions(pm)
-        # if os.environ.get("AMDGCN_USE_BUFFER_OPS", "0") == "1":
-        #     amd.passes.ttgpuir.add_canonicalize_pointers(pm)
-        #     passes.common.add_canonicalizer(pm)
-        #     amd.passes.ttgpuir.add_convert_to_buffer_ops(pm)
+        if amd.has_matrix_core_feature(options.arch):
+            amd.passes.ttgpuir.add_reorder_instructions(pm)
+        if os.environ.get("AMDGCN_USE_BUFFER_OPS", "0") == "1":
+            amd.passes.ttgpuir.add_canonicalize_pointers(pm)
+            passes.common.add_canonicalizer(pm)
+            amd.passes.ttgpuir.add_convert_to_buffer_ops(pm)
         passes.common.add_canonicalizer(pm)
         passes.common.add_cse(pm)
         passes.common.add_symbol_dce(pm)
