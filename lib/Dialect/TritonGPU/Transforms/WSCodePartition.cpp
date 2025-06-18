@@ -2402,12 +2402,13 @@ createLocalCopy(const DenseMap<Channel *, Value> &bufferMap, Channel *channel,
 
   // Producer part. Create local_store for new producers.
   builder.setAsynTaskIdsFromArray(channel->relation.first);
-  builder.setInsertionPoint(srcOp->getParentOp());
+  // builder.setInsertionPoint(srcOp->getParentOp());
+  builder.setInsertionPointAfter(srcOp);
   zero = builder.createWithAsyncTaskIds<arith::ConstantIntOp>(srcOp->getLoc(),
                                                               0, 32);
   SmallVector<Value> storeOffsets(sliceType.getRank() + 1, zero);
   storeOffsets[0] = srcBufferIdx;
-  builder.setInsertionPointAfter(srcOp);
+  // builder.setInsertionPointAfter(srcOp);
   auto srcView = builder.createWithAsyncTaskIds<ttg::MemDescSubviewOp>(
       srcOp->getLoc(), subviewTy, buffer, storeOffsets);
   // Create local_alloc
@@ -2649,6 +2650,21 @@ void insertAsyncComm(
         break;
       }
     }
+    // Try to find head producer from copy map if not found from channelsGroupedByConsumers
+    if (!headProducer) {
+      llvm::errs() << "searching for head producer from copy map\n";
+      auto channel = kv.getFirst();
+      auto copyProducer = copyOpMap.find(channel)->second.first;
+      producerBlock = copyProducer->getBlock();
+      for (auto &op : producerBlock->getOperations()) {
+        if (producerOps.count(&op)) {
+          llvm::errs() << "found head producer \n";
+          headProducer = &op;
+          break;
+        }
+      }
+    }
+
     // Find tail producer
     Operation *tailProducer = nullptr;
     for (auto &op : reverse(producerBlock->getOperations())) {
