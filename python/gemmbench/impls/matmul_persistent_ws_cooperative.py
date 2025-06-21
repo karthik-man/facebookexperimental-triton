@@ -11,29 +11,44 @@ import triton.language as tl
 @triton.autotune(
 
     configs=[
-        triton.Config(
+         triton.Config(
             {
-                "BLOCK_SIZE_M": m, 
-                "BLOCK_SIZE_N": n,
-                "BLOCK_SIZE_K": k,
-                "GROUP_SIZE_M": gm,
-                'waves_per_eu': 3,
-                'matrix_instr_nonkdim': matrix_instr_nonkdim,
-                'kpack': kpack,
+                "BLOCK_SIZE_M": 128, 
+                "BLOCK_SIZE_N": 256,
+                "BLOCK_SIZE_K": 32,
+                "GROUP_SIZE_M": 32,
+                'waves_per_eu': 2,
+                'matrix_instr_nonkdim': 16,
+                'kpack': 1,
             },
             num_stages=1,
             num_warps=4,
-            num_consumer_groups=ncg,
-            num_buffers_warp_spec=nbws
-        )
-        for m in [128, 256]
-        for n in [64, 128, 256]
-        for k in [16, 32, 64]
-        for gm in [2, 4, 8, 32]
-        for ncg in [1, 2]
-        for nbws in [1, 2, 3, 4]
-        for kpack in [1, 2]
-        for matrix_instr_nonkdim in [16, 32]
+            num_consumer_groups=1,
+            num_buffers_warp_spec=2
+        ),
+        # triton.Config(
+        #     {
+        #         "BLOCK_SIZE_M": m, 
+        #         "BLOCK_SIZE_N": n,
+        #         "BLOCK_SIZE_K": k,
+        #         "GROUP_SIZE_M": gm,
+        #         'waves_per_eu': 3,
+        #         'matrix_instr_nonkdim': matrix_instr_nonkdim,
+        #         'kpack': kpack,
+        #     },
+        #     num_stages=1,
+        #     num_warps=4,
+        #     num_consumer_groups=ncg,
+        #     num_buffers_warp_spec=nbws
+        # )
+        # for m in [128, 256]
+        # for n in [64, 128, 256]
+        # for k in [16, 32, 64]
+        # for gm in [2, 4, 8, 32]
+        # for ncg in [1, 2]
+        # for nbws in [1, 2, 3, 4]
+        # for kpack in [1, 2]
+        # for matrix_instr_nonkdim in [16, 32]
     ],
     key=["M", "N", "K"],
 )

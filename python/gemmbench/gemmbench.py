@@ -212,7 +212,7 @@ def benchmark(M, N, K, provider, fp8_inputs):
     quantiles = [0.5, 0.2, 0.8]
     fn = impl_map[provider]
     ms, min_ms, max_ms = triton.testing.do_bench_cudagraph(
-        lambda: fn(a, b), quantiles=quantiles, rep=1
+        lambda: fn(a, b), quantiles=quantiles, rep=1000
     )
     perf = lambda ms: 2 * M * N * K * 1e-12 / (ms * 1e-3)
     return perf(ms), perf(max_ms), perf(min_ms)
