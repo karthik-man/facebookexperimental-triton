@@ -80,8 +80,10 @@ struct ArriveBarrierOpConversion
     auto baseAddrArg = phaseFlipBuilder.newOperand(phaseBaseAddr, "v");
     auto oneArg = phaseFlipBuilder.newOperand(one, "v");
     xor_phase(baseAddrArg, oneArg);
+
     auto &s_wakeup = *phaseFlipBuilder.create("s_wakeup");
     s_wakeup();
+    
     auto xor_op = phaseFlipBuilder.launch(rewriter, loc, void_ty(ctx),
                                      true /*hasSideEffects*/);
     // // rewriter.setInsertionPointAfterValue(xor_op);

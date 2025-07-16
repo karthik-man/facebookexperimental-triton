@@ -233,15 +233,16 @@ class HIPBackend(BaseBackend):
             # amd.passes.ttgpuir.add_stream_pipelinev2(pm, options.num_stages)
             passes.common.add_canonicalizer(pm)
             # passes.ttgpuir.add_ws_lowering(pm, options.num_consumer_groups)
+        amd.passes.ttgpuir.insert_instruction_sched_hints(pm)
         passes.ttgpuir.add_optimize_dot_operands(pm, True)
         passes.ttgpuir.add_remove_layout_conversions(pm)
         passes.ttgpuir.add_reduce_data_duplication(pm)
         amd.passes.ttgpuir.add_ws_lowering(pm, options.num_consumer_groups)
      
-        # if amd.has_matrix_core_feature(options.arch):
-        #     amd.passes.ttgpuir.add_reorder_instructions(pm)
+        if amd.has_matrix_core_feature(options.arch):
+            amd.passes.ttgpuir.add_reorder_instructions(pm)
      
-        if os.environ.get("AMDGCN_USE_BUFFER_OPS", "0") == "1":
+        if os.environ.get("AMDGCN_USE_BUFFER_OPS", "1") == "1":
             amd.passes.ttgpuir.add_canonicalize_pointers(pm)
             passes.common.add_canonicalizer(pm)
             amd.passes.ttgpuir.add_convert_to_buffer_ops(pm)

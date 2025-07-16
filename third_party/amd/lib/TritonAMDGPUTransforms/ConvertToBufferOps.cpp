@@ -51,6 +51,8 @@ bool verifyNonNegativeByAssumption(Value expr,
 
 bool verifyNonNegativeExpr(Value expr, const DenseSet<Value> &assumptions) {
 
+  // llvm::errs() << "Verify non-negative for: \n";
+  // expr.dump();
   // Check if the expression is contained in any assumption
   if (verifyNonNegativeByAssumption(expr, assumptions)) {
     LDBG("Non negative by assumption");
@@ -114,6 +116,8 @@ bool verifyNonNegativeExpr(Value expr, const DenseSet<Value> &assumptions) {
             // Conservatively assume that the expression is negative
             return false;
           });
+  // llvm::errs() << "Non-negative: " << nonNegative << "\n";
+  // op->dump();
   return nonNegative;
 }
 

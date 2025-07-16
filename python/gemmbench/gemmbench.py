@@ -87,8 +87,8 @@ test_impls = [
 impl_map = {fn.__name__: fn for fn in test_impls}
 
 
-M = 5632
-N = 3072
+M = 4864
+N = 4096
 K = 4096
 
 

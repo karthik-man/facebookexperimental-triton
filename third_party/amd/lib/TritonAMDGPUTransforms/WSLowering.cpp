@@ -148,16 +148,16 @@ void processAcquireOpOrWaitOp(OpBuilder &builder, Operation *op,
   // auto wakeupInstrinsic = "llvm.amdgcn.s.wakeup";
   // auto wakeUpOp = LLVM::createLLVMIntrinsicCallOp(builder, loc, wakeupInstrinsic, TypeRange{}, ValueRange{});
 
-  const char *asmStr = "s_wakeup";
-  const char *constraints = "";
-  auto asmDialectAttr = LLVM::AsmDialectAttr::get(builder.getContext(),
-                                                      LLVM::AsmDialect::AD_ATT);
-  builder.create<LLVM::InlineAsmOp>(
-      loc,
-      /*resultTypes=*/TypeRange(), /*operands=*/ValueRange(),
-      /*asm_string=*/asmStr, constraints, /*has_side_effects=*/true,
-      /*is_align_stack=*/false, /*asm_dialect=*/asmDialectAttr,
-      /*operand_attrs=*/ArrayAttr());
+  // const char *asmStr = "s_wakeup";
+  // const char *constraints = "";
+  // auto asmDialectAttr = LLVM::AsmDialectAttr::get(builder.getContext(),
+  //                                                     LLVM::AsmDialect::AD_ATT);
+  // builder.create<LLVM::InlineAsmOp>(
+  //     loc,
+  //     /*resultTypes=*/TypeRange(), /*operands=*/ValueRange(),
+  //     /*asm_string=*/asmStr, constraints, /*has_side_effects=*/true,
+  //     /*is_align_stack=*/false, /*asm_dialect=*/asmDialectAttr,
+  //     /*operand_attrs=*/ArrayAttr());
 }
 
 void processCommitOpOrReleaseOp(OpBuilder &builder, Operation *op, Value bufferCountView, Value bufferPhaseView, Value threadId) {

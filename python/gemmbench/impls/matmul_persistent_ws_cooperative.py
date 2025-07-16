@@ -16,8 +16,8 @@ import triton.language as tl
                 "BLOCK_SIZE_M": 128, 
                 "BLOCK_SIZE_N": 256,
                 "BLOCK_SIZE_K": 32,
-                "GROUP_SIZE_M": 32,
-                'waves_per_eu': 2,
+                "GROUP_SIZE_M": 4,
+                'waves_per_eu': 1,
                 'matrix_instr_nonkdim': 16,
                 'kpack': 1,
             },
@@ -25,30 +25,32 @@ import triton.language as tl
             num_warps=4,
             num_consumer_groups=1,
             num_buffers_warp_spec=2
-        ),
-        # triton.Config(
-        #     {
-        #         "BLOCK_SIZE_M": m, 
-        #         "BLOCK_SIZE_N": n,
-        #         "BLOCK_SIZE_K": k,
-        #         "GROUP_SIZE_M": gm,
-        #         'waves_per_eu': 3,
-        #         'matrix_instr_nonkdim': matrix_instr_nonkdim,
-        #         'kpack': kpack,
-        #     },
-        #     num_stages=1,
-        #     num_warps=4,
-        #     num_consumer_groups=ncg,
-        #     num_buffers_warp_spec=nbws
-        # )
-        # for m in [128, 256]
-        # for n in [64, 128, 256]
-        # for k in [16, 32, 64]
-        # for gm in [2, 4, 8, 32]
-        # for ncg in [1, 2]
-        # for nbws in [1, 2, 3, 4]
-        # for kpack in [1, 2]
-        # for matrix_instr_nonkdim in [16, 32]
+        )
+    #     # for gm in [2, 4, 8, 16, 32]
+    #     triton.Config(
+    #         {
+    #             "BLOCK_SIZE_M": m, 
+    #             "BLOCK_SIZE_N": n,
+    #             "BLOCK_SIZE_K": k,
+    #             "GROUP_SIZE_M": gm,
+    #             'waves_per_eu': wpeu,
+    #             'matrix_instr_nonkdim': matrix_instr_nonkdim,
+    #             'kpack': kpack,
+    #         },
+    #         num_stages=1,
+    #         num_warps=4,
+    #         num_consumer_groups=ncg,
+    #         num_buffers_warp_spec=nbws
+    #     )
+    #     for m in [128, 256]
+    #     for n in [64, 128, 256]
+    #     for k in [16, 32, 64]
+    #     for gm in [2, 4, 8, 32]
+    #     for ncg in [1, 2]
+    #     for nbws in [1, 2, 3, 4]
+    #     for kpack in [1, 2]
+    #     for matrix_instr_nonkdim in [16, 32]
+    #     for wpeu in [0, 1, 2, 3]
     ],
     key=["M", "N", "K"],
 )
@@ -81,11 +83,30 @@ def matmul_persistent_ws_cooperative_kernel(
     """Kernel for computing the matmul C = A x B.
     A has shape (M, K), B has shape (K, N) and C has shape (M, N)
     """
+    gpid = tl.program_id(0)
+    num_progs = tl.num_programs(0)
+    tl.assume(gpid >= 0)
+    tl.assume(num_progs > 0)
+    tl.assume(stride_am > 0)
+    tl.assume(stride_ak > 0)
+    tl.assume(stride_bk > 0)
+    tl.assume(stride_bn > 0)
+    tl.assume(stride_cm > 0)
+    tl.assume(stride_cn > 0)
+    tl.assume(M > 0)
+    tl.assume(N > 0)
+    tl.assume(K > 0)
+    tl.assume(BLOCK_SIZE_M > 0)
+    tl.assume(BLOCK_SIZE_N > 0)
+    tl.assume(BLOCK_SIZE_K > 0)
+    tl.assume(GROUP_SIZE_M > 0)
+
+
 
     num_tiles = tl.cdiv(M, BLOCK_SIZE_M) * tl.cdiv(N, BLOCK_SIZE_N)
-    for pid in range(tl.program_id(0), num_tiles, tl.num_programs(0), num_stages=1):
+    for pid in range(gpid, num_tiles, num_progs, num_stages=1):
         # tl.device_print("pid", pid)
-
+        tl.assume(pid >= 0)
         # -----------------------------------------------------------
         # Map program ids `pid` to the block of C it should compute.
         # This is done in a grouped ordering to promote L2 data reuse.
@@ -95,7 +116,9 @@ def matmul_persistent_ws_cooperative_kernel(
         num_pid_in_group = GROUP_SIZE_M * num_pid_n
         group_id = pid // num_pid_in_group
         first_pid_m = group_id * GROUP_SIZE_M
-        group_size_m = min(num_pid_m - first_pid_m, GROUP_SIZE_M)
+        calc = num_pid_m - first_pid_m
+        tl.assume(calc >= 0)
+        group_size_m = min(calc, GROUP_SIZE_M)
         pid_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
         pid_n = (pid % num_pid_in_group) // group_size_m
 
