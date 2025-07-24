@@ -1,9 +1,13 @@
 import triton.language.core as tl
 import triton.language.semantic as semantic
+import triton.runtime.driver as driver
 
 from . import types as tlx
 from .utility import cuda_parse_arch
 
+def is_hip():
+    target = driver.active.get_current_target()
+    return target.backend == 'hip'
 
 def require_nv_mma_shared_layout(x: tlx.buffered_tensor, _builder=None):
     assert isinstance(x.type.layout, tlx.shared_layout_encoding), "input must be a shared tensor"
@@ -25,6 +29,9 @@ def require_nv_mma_shared_layout(x: tlx.buffered_tensor, _builder=None):
         assert isinstance(x.type.layout, tlx.nv_mma_shared_layout_encoding), "input must be a shared mma tensor"
         return x.handle
 
+def require_amd_dot_operand_layout(opnd: tl.tensor, opIdx, parent_layout, _builder, kWidth):
+    layout_handle = _builder.make_amd_dot_operand_encoding_attr(opIdx, parent_layout, kWidth)
+    return _builder.create_require_layout(opnd.handle, layout_handle)
 
 def require_dot_operand_layout(opnd: tl.tensor, opIdx, parent_layout, _builder=None):
     layout_handle = _builder.make_dot_operand_encoding_attr(opnd.handle, opIdx, parent_layout)
@@ -47,6 +54,16 @@ def require_tmem_layout_unpacked(src: tlx.buffered_tensor, unpacked: bool, _buil
     # if the layout is already correct, return the original handle
     return src.handle
 
+def emit_hip_dot(A, B, acc_handle, input_precision, ret_ty, _builder):
+    mfma_enc = _builder.make_amd_mfma_encoding_attr(A.handle, acc_handle, _builder.options.num_warps)
+    acc = _builder.create_require_layout(acc_handle, mfma_enc)
+    kWidth = 16
+    A_handle = require_amd_dot_operand_layout(A, 0, mfma_enc, _builder, kWidth)
+    B_handle = require_amd_dot_operand_layout(B, 1, mfma_enc, _builder, kWidth)
+    output = _builder.create_dot(A_handle, B_handle, acc, input_precision)
+    # Release the mma layout for the output to conform to what the user expects
+    output = _builder.create_release_layout(output)
+    return tl.tensor(output, ret_ty) 
 
 # async dot signature needs to be close to tl.dot as much as possible
 @tl.builtin
@@ -89,6 +106,9 @@ def async_dot(
     assert A.shape[0] >= 64, "M must be at least 64"
     assert A.shape[1] >= 16, "K must be at least 16"
     assert B.shape[1] >= 32, "N must be at least 32"
+
+    if is_hip():
+        return emit_hip_dot(A, B, acc_handle, input_precision, ret_ty, _builder)
 
     cuda_compute_capability = int(cuda_parse_arch(_builder.options.arch))
     version = 5 if cuda_compute_capability >= 100 else 3

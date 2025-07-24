@@ -125,6 +125,42 @@ void init_triton_tlx_ir(py::module &&m) {
                  context, versionMajor, versionMinor, warpsPerCTA, CTALayout,
                  instrShape));
            })
+      .def("make_amd_mfma_encoding_attr",
+            [](TritonOpBuilder &self, Value opndA, Value opndAcc,
+               unsigned moduleNumWarps) {
+              auto context = self.getBuilder().getContext();
+              auto mfmaVersion = 3; //TODO: add support for other versions
+              Block *parentBlock = self.getBuilder().getInsertionBlock();
+              unsigned numWarps =
+                  ttg::maybeLookupNumWarps(parentBlock).value_or(moduleNumWarps);
+              // TODO: Use logic in AMDAccelerateMatmul.cpp to determine warpsPerTile
+              SmallVector<unsigned, 2> warpsPerTile = {numWarps, 1};
+              auto retType = cast<RankedTensorType>(opndAcc.getType());
+              auto retShapePerCTA = retType.getShape();
+              int minSize = std::min(retShapePerCTA[0], retShapePerCTA[1]);
+              auto mDim = 0, nDim = 0;
+              if (minSize >= 32) {
+                mDim = 32;
+                nDim = 32;
+              }
+              if (minSize >= 16 && minSize < 32) {
+                mDim = 16;
+                nDim = 16;
+              }
+              assert(mDim != 0 && nDim != 0 && "Unsupported shape for MFMA");
+              // Default to row partitioning for now. Should be smarter.
+              SmallVector<unsigned, 2> warpsPerCTA = {numWarps, 1};
+              SmallVector<unsigned, 2> CTAsPerCGA = {1, 1};
+              SmallVector<unsigned, 2> CTASplitNum = {1, 1};
+              SmallVector<unsigned, 2> CTAOrder = {1, 0};
+              auto CTALayout = ttg::CTALayoutAttr::get(context, CTAsPerCGA,
+                                                      CTASplitNum, CTAOrder);
+
+              return mlir::cast<Attribute>(ttg::AMDMfmaEncodingAttr::get(
+                context,
+                /*versionMajor*/ mfmaVersion, /*versionMinor*/ 0, warpsPerTile,
+                /*instrShape*/ mDim, nDim, true /*isTransposed*/, CTALayout));
+            })
       .def("make_dot_operand_encoding_attr",
            [](TritonOpBuilder &self, Value opnd, unsigned opIdx,
               Attribute parentEnc) -> Attribute {
@@ -134,6 +170,13 @@ void init_triton_tlx_ir(py::module &&m) {
              return ttg::DotOperandEncodingAttr::get(context, opIdx, parentEnc,
                                                      eltType);
            })
+      .def("make_amd_dot_operand_encoding_attr",
+      [](TritonOpBuilder &self, unsigned opIdx,
+          Attribute mfmaEnc, unsigned kWidth) -> Attribute {
+        auto context = self.getBuilder().getContext();
+        return ttg::DotOperandEncodingAttr::get(context, opIdx, mfmaEnc, kWidth);
+      })
+      
       .def("make_default_tmem_compatible_tensor_layout_encoding",
            [](TritonOpBuilder &self, std::vector<int64_t> shape,
               Type elementType, int moduleNumWarps, int threadsPerWarp,
@@ -173,6 +216,11 @@ void init_triton_tlx_ir(py::module &&m) {
            [](TritonOpBuilder &self) -> void {
              self.create<ttng::FenceAsyncSharedOp>(false);
            })
+      .def("create_dot",
+      [](TritonOpBuilder &self, mlir::Value &a, mlir::Value &b,
+          mlir::Value &c, InputPrecision inputPrecision) -> mlir::Value {
+        return self.create<triton::DotOp>(c.getType(), a, b, c, inputPrecision);
+      })
       .def("create_warp_group_dot",
            [](TritonOpBuilder &self, mlir::Value &a, mlir::Value &b,
               mlir::Value &c, InputPrecision inputPrecision,
