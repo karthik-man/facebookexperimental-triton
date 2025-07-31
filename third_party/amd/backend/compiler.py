@@ -1,5 +1,5 @@
 from triton.backends.compiler import BaseBackend, GPUTarget
-from triton._C.libtriton import ir, passes, llvm, amd
+from triton._C.libtriton import ir, passes, llvm, amd, tlx
 from triton import knobs
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
@@ -195,6 +195,7 @@ class HIPBackend(BaseBackend):
     def make_ttir(mod, metadata, options):
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
+        tlx.tlx_passes.add_triton_tlx_fixup(pm, f"hip:gfx942", options.num_warps, 64, options.num_ctas)
         passes.common.add_inliner(pm)
         passes.ttir.add_rewrite_tensor_pointer(pm)
         passes.ttir.add_rewrite_tensor_descriptor_to_pointer(pm)
@@ -218,6 +219,7 @@ class HIPBackend(BaseBackend):
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
         passes.ttgpuir.add_coalesce(pm)
+        tlx.tlx_passes.add_tlx_propagate_layout(pm)
         passes.ttgpuir.add_remove_layout_conversions(pm)
         passes.ttgpuir.add_optimize_thread_locality(pm)
         amd.passes.ttgpuir.add_accelerate_matmul(pm, options.arch, options.matrix_instr_nonkdim, options.kpack)
@@ -248,9 +250,10 @@ class HIPBackend(BaseBackend):
         passes.ttgpuir.add_optimize_dot_operands(pm, True)
         passes.ttgpuir.add_remove_layout_conversions(pm)
         passes.ttgpuir.add_reduce_data_duplication(pm)
-        if is_in_thread_transpose_enabled(options.arch):
-            amd.passes.ttgpuir.add_in_thread_transpose(pm)
-            passes.ttgpuir.add_remove_layout_conversions(pm)
+        # FIXME: Uncomment this
+        # if is_in_thread_transpose_enabled(options.arch):
+        #     amd.passes.ttgpuir.add_in_thread_transpose(pm)
+        #     passes.ttgpuir.add_remove_layout_conversions(pm)
         amd.passes.ttgpuir.add_reorder_instructions(pm)
         use_block_pingpong = is_pingpong_schedule_enabled(options.arch)
         if use_block_pingpong and options.num_stages == 2:

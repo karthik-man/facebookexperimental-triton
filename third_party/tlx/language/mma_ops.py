@@ -54,16 +54,20 @@ def require_tmem_layout_unpacked(src: tlx.buffered_tensor, unpacked: bool, _buil
     # if the layout is already correct, return the original handle
     return src.handle
 
-def emit_hip_dot(A, B, acc_handle, input_precision, ret_ty, _builder):
+def emit_hip_dot(A, B, acc_handle, input_precision, ret_ty, _builder, token=None):
     mfma_enc = _builder.make_amd_mfma_encoding_attr(A.handle, acc_handle, _builder.options.num_warps)
-    acc = _builder.create_require_layout(acc_handle, mfma_enc)
     kWidth = 16
-    A_handle = require_amd_dot_operand_layout(A, 0, mfma_enc, _builder, kWidth)
-    B_handle = require_amd_dot_operand_layout(B, 1, mfma_enc, _builder, kWidth)
-    output = _builder.create_dot(A_handle, B_handle, acc, input_precision)
-    # Release the mma layout for the output to conform to what the user expects
-    output = _builder.create_release_layout(output)
-    return tl.tensor(output, ret_ty) 
+    amd_dot_op_enc_A = _builder.make_amd_dot_operand_encoding_attr(0, mfma_enc, kWidth)
+    amd_dot_op_enc_B = _builder.make_amd_dot_operand_encoding_attr(1, mfma_enc, kWidth)
+    swizzled_shared_enc_attr_A = _builder.make_amd_swizzled_shared_encoding_attr(amd_dot_op_enc_A, A.handle)
+    swizzled_shared_enc_attr_B = _builder.make_amd_swizzled_shared_encoding_attr(amd_dot_op_enc_B, B.handle)
+    A_handle = _builder.create_require_layout(A.handle, swizzled_shared_enc_attr_A)
+    B_handle = _builder.create_require_layout(B.handle, swizzled_shared_enc_attr_B)
+    A_handle = _builder.create_local_load(A_handle, token.handle if token else None)
+    B_handle = _builder.create_local_load(B_handle, token.handle if token else None)
+    output = _builder.create_mfma_dot(A_handle, B_handle, acc_handle, input_precision)
+    # TODO Release the required layouts?
+    return tl.tensor(output, ret_ty)
 
 # async dot signature needs to be close to tl.dot as much as possible
 @tl.builtin
@@ -154,5 +158,7 @@ def async_dot_wait(
     Each input must be the tensors corresponding to the async dot ops that we're
     waiting on.
     """
+    if is_hip():
+        return inp
     pendings = tl._unwrap_if_constexpr(pendings)
     return tl.tensor(_builder.create_warp_group_dot_wait([inp.handle], pendings)[0], inp.type)

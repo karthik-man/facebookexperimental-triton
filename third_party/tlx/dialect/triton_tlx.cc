@@ -125,6 +125,19 @@ void init_triton_tlx_ir(py::module &&m) {
                  context, versionMajor, versionMinor, warpsPerCTA, CTALayout,
                  instrShape));
            })
+      .def("make_amd_swizzled_shared_encoding_attr",
+            [](TritonOpBuilder &self, Attribute &mfmaEncAttr, Value loadedValue) {
+            auto srcTy = cast<ttg::TensorOrMemDesc>(loadedValue.getType());
+            auto ctaLayout = ttg::getCTALayout(srcTy.getEncoding());
+            auto sharedOrder = getOrderForMemory(srcTy);
+            auto context = self.getBuilder().getContext();
+            unsigned bitWidth = srcTy.getElementType().getIntOrFloatBitWidth();
+            auto dotOpEnc = dyn_cast<ttg::DotOperandEncodingAttr>(mfmaEncAttr);
+            ttg::SwizzledSharedEncodingAttr swizzledSharedEnc = ttg::SwizzledSharedEncodingAttr::get(
+                context, dotOpEnc, srcTy.getShape(), sharedOrder,
+                ctaLayout, bitWidth, /*needTrans=*/false);
+            return mlir::cast<Attribute>(swizzledSharedEnc);
+          })
       .def("make_amd_mfma_encoding_attr",
             [](TritonOpBuilder &self, Value opndA, Value opndAcc,
                unsigned moduleNumWarps) {
@@ -167,8 +180,8 @@ void init_triton_tlx_ir(py::module &&m) {
              auto context = self.getBuilder().getContext();
              auto eltType =
                  cast<RankedTensorType>(opnd.getType()).getElementType();
-             return ttg::DotOperandEncodingAttr::get(context, opIdx, parentEnc,
-                                                     eltType);
+             return mlir::cast<Attribute>(ttg::DotOperandEncodingAttr::get(context, opIdx, parentEnc,
+                                                     eltType));
            })
       .def("make_amd_dot_operand_encoding_attr",
       [](TritonOpBuilder &self, unsigned opIdx,
@@ -216,7 +229,7 @@ void init_triton_tlx_ir(py::module &&m) {
            [](TritonOpBuilder &self) -> void {
              self.create<ttng::FenceAsyncSharedOp>(false);
            })
-      .def("create_dot",
+      .def("create_mfma_dot",
       [](TritonOpBuilder &self, mlir::Value &a, mlir::Value &b,
           mlir::Value &c, InputPrecision inputPrecision) -> mlir::Value {
         return self.create<triton::DotOp>(c.getType(), a, b, c, inputPrecision);
