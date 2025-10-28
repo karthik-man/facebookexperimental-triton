@@ -441,12 +441,22 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
                   ConversionPatternRewriter &rewriter) const override {
     auto newReduce = rewriter.create<triton::ReduceOp>(
         op.getLoc(), adaptor.getOperands(), adaptor.getAxis());
+    llvm::errs() << "TritonReducePattern0\n";
+    op.dump();
+    newReduce->dump();
     addNamedAttrs(newReduce, adaptor.getAttributes());
+    llvm::errs() << "TritonReducePattern1\n";
+    op.dump();
 
     auto &newCombineOp = newReduce.getCombineOp();
     rewriter.cloneRegionBefore(op.getCombineOp(), newCombineOp,
                                newCombineOp.end());
+    llvm::errs() << "TritonReducePattern2\n";
+    op.dump();
     rewriter.replaceOp(op, newReduce.getResult());
+    llvm::errs() << "TritonReducePattern3\n";
+    op.dump();
+    newReduce->dump();
     return success();
   }
 };

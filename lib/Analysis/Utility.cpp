@@ -115,7 +115,10 @@ SmallVector<unsigned> ReduceOpHelper::getScratchRepShape() {
 
   smemShape = convertType<unsigned>(srcShape);
   smemShape[axis] = getInterWarpSizeWithUniqueData();
-
+  // unsigned numReductionCTAs = getNumReductionCTAs();
+  // if (numReductionCTAs > 1) {
+  //   smemShape.insert(smemShape.begin(), numReductionCTAs);
+  // }
   return smemShape;
 }
 
@@ -127,14 +130,33 @@ unsigned ReduceOpHelper::getScratchSizeInBytes() {
   for (const auto &ty : srcElementTypes) {
     bytesPerElem += ceil<unsigned>(ty.getIntOrFloatBitWidth(), 8);
   }
-  return bytesPerElem * elems;
+  unsigned localReductionBufferSize = bytesPerElem * elems;
+  unsigned crossCTAReductionBufferSize = 0;
+  
+  // Remote Reudction Buffer Size
+  if (isCrossCTAReduction()) {
+    auto numReductionCTAs = getNumReductionCTAs();
+    smemShape[axis] = numReductionCTAs;
+    elems = product<unsigned>(smemShape);
+    crossCTAReductionBufferSize = bytesPerElem * elems;
+  }
+  return localReductionBufferSize + crossCTAReductionBufferSize;
 }
+
 
 bool ReduceOpHelper::isReduceWithinCTA() {
   // TODO: Support reduce across CTAS
   // Layout optimization passes such as PlanCTAPass and
   // RemoveLayoutConversionPass should avoid cross-CTA reduction
   return getCTASplitNum(srcEncoding)[axis] == 1;
+}
+
+unsigned ReduceOpHelper::getNumReductionCTAs() {
+  return getCTASplitNum(srcEncoding)[axis];
+}
+
+bool ReduceOpHelper::isCrossCTAReduction() {
+  return getCTASplitNum(srcEncoding)[axis] > 1;
 }
 
 bool ReduceOpHelper::isAssociative() {

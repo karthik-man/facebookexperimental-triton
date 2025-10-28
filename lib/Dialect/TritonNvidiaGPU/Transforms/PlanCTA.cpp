@@ -340,10 +340,18 @@ bool CTAPlanner::processReduce(triton::FuncOp &funcOp) {
 
     llvm::SmallVector<unsigned> CTAsPerCGA(rank, 0);
     unsigned remainingCTAs = numCTAs;
+
+    // Allocate CTAs to the reduction dimension first
+    CTAsPerCGA[axis] =
+        std::min<unsigned>(srcShape[axis] / sizePerThread[axis], remainingCTAs);
+    remainingCTAs /= CTAsPerCGA[axis];
+
+    // Allocate CTAs to the remaining dimensions
     for (int i = rank - 1; i >= 0; --i) {
       unsigned dim = order[i];
       if (dim == axis) {
-        CTAsPerCGA[dim] = 1;
+        // CTAsPerCGA[dim] = 1;
+        continue;
       } else {
         CTAsPerCGA[dim] = std::min<unsigned>(srcShape[dim] / sizePerThread[dim],
                                              remainingCTAs);
@@ -358,9 +366,7 @@ bool CTAPlanner::processReduce(triton::FuncOp &funcOp) {
         break;
       }
     }
-
     llvm::SmallVector<unsigned> CTASplitNum = CTAsPerCGA;
-
     // If numCTAs > 1 and the only dimension is the reduced dimension, after the
     // above two for-loops, CTAsPerCGA = [0] and remainingCTAs = numCTAs. We set
     // CTAsPerCGA[0] = numCTAs and keep CTASplitNum[0] = 1 to ensure that no
@@ -370,13 +376,17 @@ bool CTAPlanner::processReduce(triton::FuncOp &funcOp) {
       CTAsPerCGA[order[rank - 1]] *= remainingCTAs;
 
     auto numWarps = ttg::lookupNumWarps(reduce);
-    auto CTALayout =
+    auto InputCTALayout =
         ttg::CTALayoutAttr::get(context, CTAsPerCGA, CTASplitNum, CTAOrder);
     if (!tiled)
-      setTiling(CTALayout.getCTAsPerCGA());
+      setTiling(InputCTALayout.getCTAsPerCGA());
     auto newSrcLayout =
         replaceCTALayout(cast<ttg::DistributedEncodingTrait>(srcLayout),
-                         srcShape, numWarps, CTALayout);
+                         srcShape, numWarps, InputCTALayout);
+    
+    llvm::SmallVector<unsigned> ResultCTASplitNum(rank, 1);   
+    auto ResultCTALayout =
+        ttg::CTALayoutAttr::get(context, CTAsPerCGA, ResultCTASplitNum, CTAOrder);
     auto newResultLayout =
         ttg::SliceEncodingAttr::get(context, axis, newSrcLayout);
     unsigned numOperands = reduce.getNumOperands();
@@ -500,6 +510,11 @@ bool CTAPlanner::propagateForward(CastOp cast) {
     if (auto ptrTy = dyn_cast<triton::PointerType>(inTy))
       inTy = ptrTy.getPointeeType();
     Attribute layout = mlir::cast<RankedTensorType>(inTy).getEncoding();
+    Type outTy = output.getType();
+    if (auto ptrTy = dyn_cast<triton::PointerType>(outTy))
+      outTy = ptrTy.getPointeeType();
+    auto outputLayout = mlir::cast<ttg::DistributedEncodingTrait>(
+        mlir::cast<RankedTensorType>(outTy).getEncoding());
     Operation *op = *output.user_begin();
     if (auto nextCast = llvm::dyn_cast<CastOp>(op)) {
       eliminateAdjacentCasts(cast, nextCast);
@@ -517,6 +532,10 @@ bool CTAPlanner::propagateForward(CastOp cast) {
       processForOpForward(forOp, cast);
     } else if (auto yieldOp = llvm::dyn_cast<scf::YieldOp>(op)) {
       processYieldOpForward(yieldOp, cast);
+    } else if (auto expandDims = llvm::dyn_cast<triton::ExpandDimsOp>(op)) {
+      auto layout = mlir::cast<ttg::DistributedEncodingTrait>(
+        mlir::cast<RankedTensorType>(outTy).getEncoding());
+      processExpandDimsForward(expandDims, outputLayout);
     } else {
       // Keep original layouts. This may result in a loss of performance.
       return processOpFallback(op);
@@ -585,7 +604,9 @@ void CTAPlanner::insertCasts(Operation *op,
     Value result = op->getResult(i);
     auto resultTy = result.getType();
     if (triton::isTensorOrTensorPointerType(resultTy)) {
+      // change result type of the op to the new layout
       resultTy = replaceLayout(resultTy, newResultLayouts[i]);
+      // create a new cast op with the new layout
       auto cast =
           markForward(builder.create<CastOp>(loc, result.getType(), result));
       result.setType(resultTy);
@@ -770,7 +791,9 @@ bool CTAPlanner::processExpandDimsBackward(
 bool CTAPlanner::processExpandDimsForward(
     triton::ExpandDimsOp expandDims,
     ttg::DistributedEncodingTrait newSrcLayout) {
-  llvm::report_fatal_error("processExpandDimsForward not implemented yet");
+  auto newResultLayout = ttg::SliceEncodingAttr::get(
+      newSrcLayout.getContext(), expandDims.getAxis(), newSrcLayout);
+  insertCasts(expandDims.getOperation(), {newSrcLayout}, {newResultLayout});
   return true;
 }
 
@@ -935,6 +958,9 @@ bool CTAPlanner::processYieldOpForward(scf::YieldOp yieldOp, CastOp cast) {
 bool CTAPlanner::processOpFallback(Operation *op) {
   Location loc = op->getLoc();
   OpBuilder builder(op->getContext());
+
+  llvm::errs() << "Dumping \n";
+  op->dump();
 
   builder.setInsertionPoint(op);
   for (unsigned i = 0; i < op->getNumOperands(); ++i) {

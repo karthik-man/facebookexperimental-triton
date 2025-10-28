@@ -27,8 +27,8 @@ public:
   matchAndRewrite(triton::ReduceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     ReduceOpHelper helper(op);
-    assert(helper.isReduceWithinCTA() &&
-           "Unexpected srcLayout in ReduceOpConversion");
+    // assert(helper.isReduceWithinCTA() &&
+    //        "Unexpected srcLayout in ReduceOpConversion");
     Location loc = op->getLoc();
 
     auto srcValues = unpackInputs(loc, op, adaptor, rewriter);
@@ -65,10 +65,11 @@ public:
     //   elemsPerThread = sizeInterWarps * s1 * s2 .. Sn / numThreads
     accumulatePartialReductions(helper, smemBases, rewriter);
 
+    // Moved this sync into accumulatePartialReductions
     // We could avoid this barrier in some of the layouts, however this is not
     // the general case.
     // TODO: optimize the barrier in case the layouts are accepted.
-    sync(rewriter, loc, op);
+    // sync(rewriter, loc, op);
 
     // set output values
     loadReductionAndPackResult(helper, smemShape, smemBases, rewriter);
@@ -269,11 +270,20 @@ private:
   // store back to shared memory.
   void accumulatePartialReductions(ReduceOpHelper &helper,
                                    SmallVector<Value> &smemBases,
-                                   ConversionPatternRewriter &rewriter) const {
+                                   ConversionPatternRewriter &rewriter, bool localReduce=true) const {
     triton::ReduceOp op = helper.getOperation();
     auto smemShape = helper.getScratchRepShape();
-    unsigned elems = product<unsigned>(smemShape);
-    unsigned sizeInterWarps = helper.getInterWarpSizeWithUniqueData();
+    
+    unsigned elems = 0;
+    unsigned smemElems = product<unsigned>(smemShape);
+    unsigned numReductionCTAs = helper.getNumReductionCTAs();
+    if (localReduce) {
+      elems = smemElems;
+    } else {
+      auto axis = op.getAxis();
+      elems = (smemElems/smemShape[axis]) * numReductionCTAs;
+    }
+    unsigned sizeInterWarps = helper.getInterWarpSizeWithUniqueData(); // getWarpsPerCTA(srcEncoding, srcShape)[axis]
     Location loc = op.getLoc();
     auto b = TritonLLVMOpBuilder(loc, rewriter);
 
@@ -323,6 +333,10 @@ private:
         readOffset = b.add(readOffset, b.i32_val(numThreads));
       }
     }
+    // We could avoid this barrier in some of the layouts, however this is not
+    // the general case.
+    // TODO: optimize the barrier in case the layouts are accepted.
+    sync(rewriter, loc, op);
   }
 
   // Load the final reduction from shared memory and replace the reduce result

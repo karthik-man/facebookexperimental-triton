@@ -65,6 +65,10 @@ public:
 
   bool isReduceWithinCTA();
 
+  unsigned getNumReductionCTAs();
+
+  bool isCrossCTAReduction();
+
   bool isAssociative();
 
 private:
