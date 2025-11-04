@@ -128,7 +128,7 @@ private:
   bool processExpandDimsBackward(triton::ExpandDimsOp expandDims,
                                  ttg::DistributedEncodingTrait newResultLayout);
   bool processExpandDimsForward(triton::ExpandDimsOp expandDims,
-                                ttg::DistributedEncodingTrait newSrcLayout);
+                                ttg::SliceEncodingAttr newSrcLayout);
 
   bool processConvertLayoutBackward(ttg::ConvertLayoutOp convertLayout,
                                     CastOp cast);
@@ -327,10 +327,14 @@ bool CTAPlanner::processReduce(triton::FuncOp &funcOp) {
   funcOp.walk([&](triton::ReduceOp reduce) {
     MLIRContext *context = reduce.getContext();
     Value src = reduce.getOperands()[0];
+    Value dst = reduce.getResult()[0];
     unsigned axis = reduce.getAxis();
 
     auto srcTy = cast<RankedTensorType>(src.getType());
+    auto dstTy = cast<RankedTensorType>(dst.getType());
+
     auto srcShape = srcTy.getShape();
+    auto dstShape = dstTy.getShape();
     auto srcLayout = srcTy.getEncoding();
 
     auto rank = srcShape.size();
@@ -371,7 +375,7 @@ bool CTAPlanner::processReduce(triton::FuncOp &funcOp) {
     // above two for-loops, CTAsPerCGA = [0] and remainingCTAs = numCTAs. We set
     // CTAsPerCGA[0] = numCTAs and keep CTASplitNum[0] = 1 to ensure that no
     // cross-CTA reduction is required, although this will introduce duplicated
-    // calculation
+    // calculationq
     if (remainingCTAs > 0)
       CTAsPerCGA[order[rank - 1]] *= remainingCTAs;
 
@@ -384,11 +388,15 @@ bool CTAPlanner::processReduce(triton::FuncOp &funcOp) {
         replaceCTALayout(cast<ttg::DistributedEncodingTrait>(srcLayout),
                          srcShape, numWarps, InputCTALayout);
     
-    llvm::SmallVector<unsigned> ResultCTASplitNum(rank, 1);   
+    llvm::SmallVector<unsigned> q(rank, 1);   
     auto ResultCTALayout =
         ttg::CTALayoutAttr::get(context, CTAsPerCGA, ResultCTASplitNum, CTAOrder);
-    auto newResultLayout =
+    auto newResultLayout1 =
         ttg::SliceEncodingAttr::get(context, axis, newSrcLayout);
+
+    auto newResultLayout = replaceCTALayout(newResultLayout1,
+                         srcShape, numWarps, ResultCTALayout);
+    
     unsigned numOperands = reduce.getNumOperands();
     SmallVector<Attribute> newSrcLayoutVec(numOperands, newSrcLayout);
     SmallVector<Attribute> newResultLayoutVec(numOperands, newResultLayout);
@@ -510,11 +518,11 @@ bool CTAPlanner::propagateForward(CastOp cast) {
     if (auto ptrTy = dyn_cast<triton::PointerType>(inTy))
       inTy = ptrTy.getPointeeType();
     Attribute layout = mlir::cast<RankedTensorType>(inTy).getEncoding();
-    Type outTy = output.getType();
-    if (auto ptrTy = dyn_cast<triton::PointerType>(outTy))
-      outTy = ptrTy.getPointeeType();
-    auto outputLayout = mlir::cast<ttg::DistributedEncodingTrait>(
-        mlir::cast<RankedTensorType>(outTy).getEncoding());
+    // Type outTy = output.getType();
+    // if (auto ptrTy = dyn_cast<triton::PointerType>(outTy))
+    //   outTy = ptrTy.getPointeeType();
+    // auto outputLayout = mlir::cast<ttg::DistributedEncodingTrait>(
+    //     mlir::cast<RankedTensorType>(outTy).getEncoding());
     Operation *op = *output.user_begin();
     if (auto nextCast = llvm::dyn_cast<CastOp>(op)) {
       eliminateAdjacentCasts(cast, nextCast);
@@ -533,9 +541,11 @@ bool CTAPlanner::propagateForward(CastOp cast) {
     } else if (auto yieldOp = llvm::dyn_cast<scf::YieldOp>(op)) {
       processYieldOpForward(yieldOp, cast);
     } else if (auto expandDims = llvm::dyn_cast<triton::ExpandDimsOp>(op)) {
-      auto layout = mlir::cast<ttg::DistributedEncodingTrait>(
-        mlir::cast<RankedTensorType>(outTy).getEncoding());
-      processExpandDimsForward(expandDims, outputLayout);
+      // auto layout = mlir::cast<ttg::DistributedEncodingTrait>(
+      //   mlir::cast<RankedTensorType>(outTy).getEncoding());
+      auto inputLayout = mlir::dyn_cast<ttg::SliceEncodingAttr>(layout);
+      assert(inputLayout && "Expect input to be SliceLayout");
+      processExpandDimsForward(expandDims, inputLayout);
     } else {
       // Keep original layouts. This may result in a loss of performance.
       return processOpFallback(op);
@@ -790,10 +800,16 @@ bool CTAPlanner::processExpandDimsBackward(
 
 bool CTAPlanner::processExpandDimsForward(
     triton::ExpandDimsOp expandDims,
-    ttg::DistributedEncodingTrait newSrcLayout) {
-  auto newResultLayout = ttg::SliceEncodingAttr::get(
-      newSrcLayout.getContext(), expandDims.getAxis(), newSrcLayout);
-  insertCasts(expandDims.getOperation(), {newSrcLayout}, {newResultLayout});
+    ttg::SliceEncodingAttr newSrcLayout) {
+  
+  auto srcCTALayout = ttg::getCTALayout(newSrcLayout.getParent());
+  auto numWarps = ttg::lookupNumWarps(expandDims);
+  auto outTy = expandDims.getResult().getType();
+  auto outShape = mlir::cast<RankedTensorType>(outTy).getShape();
+  auto newResultLayout =
+    replaceCTALayout(cast<ttg::DistributedEncodingTrait>(newSrcLayout),
+                       outShape, numWarps, srcCTALayout);    
+  insertCasts(expandDims.getOperation(), {newSrcLayout},  {newResultLayout});
   return true;
 }
 
