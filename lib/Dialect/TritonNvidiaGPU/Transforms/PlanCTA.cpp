@@ -804,15 +804,16 @@ bool CTAPlanner::processExpandDimsBackward(
 bool CTAPlanner::processExpandDimsForward(
     triton::ExpandDimsOp expandDims,
     ttg::SliceEncodingAttr newSrcLayout) {
+  auto parentLayout = newSrcLayout.getParent();
   
-  auto srcCTALayout = ttg::getCTALayout(newSrcLayout.getParent());
-  auto numWarps = ttg::lookupNumWarps(expandDims);
-  auto outTy = expandDims.getResult().getType();
-  auto outShape = mlir::cast<RankedTensorType>(outTy).getShape();
-  auto newResultLayout =
-    replaceCTALayout(cast<ttg::DistributedEncodingTrait>(newSrcLayout),
-                       outShape, numWarps, srcCTALayout);    
-  insertCasts(expandDims.getOperation(), {newSrcLayout},  {newResultLayout});
+  // auto srcCTALayout = ttg::getCTALayout(newSrcLayout.getParent());
+  // auto numWarps = ttg::lookupNumWarps(expandDims);
+  // auto outTy = expandDims.getResult().getType();
+  // auto outShape = mlir::cast<RankedTensorType>(outTy).getShape();
+  // auto newResultLayout =
+  //   replaceCTALayout(cast<ttg::DistributedEncodingTrait>(newSrcLayout),
+  //                      outShape, numWarps, srcCTALayout);    
+  insertCasts(expandDims.getOperation(), {newSrcLayout},  {parentLayout});
   return true;
 }
 
