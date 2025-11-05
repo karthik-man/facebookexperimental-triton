@@ -275,6 +275,7 @@ class CUDABackend(BaseBackend):
         if capability // 10 >= 8:
             passes.ttgpuir.add_f32_dot_tc(pm)
         # TODO(Qingyi): Move PlanCTAPass to the front of CoalescePass
+        passes.ttgpuir.add_remove_layout_conversions(pm)
         nvidia.passes.ttnvgpuir.add_plan_cta(pm, cluster_info)
         passes.ttgpuir.add_remove_layout_conversions(pm)
         passes.ttgpuir.add_optimize_thread_locality(pm)

@@ -380,22 +380,16 @@ bool CTAPlanner::processReduce(triton::FuncOp &funcOp) {
       CTAsPerCGA[order[rank - 1]] *= remainingCTAs;
 
     auto numWarps = ttg::lookupNumWarps(reduce);
-    auto InputCTALayout =
+    auto CTALayout =
         ttg::CTALayoutAttr::get(context, CTAsPerCGA, CTASplitNum, CTAOrder);
     if (!tiled)
-      setTiling(InputCTALayout.getCTAsPerCGA());
+      setTiling(CTALayout.getCTAsPerCGA());
     auto newSrcLayout =
         replaceCTALayout(cast<ttg::DistributedEncodingTrait>(srcLayout),
-                         srcShape, numWarps, InputCTALayout);
-    
-    llvm::SmallVector<unsigned> q(rank, 1);   
-    auto ResultCTALayout =
-        ttg::CTALayoutAttr::get(context, CTAsPerCGA, ResultCTASplitNum, CTAOrder);
-    auto newResultLayout1 =
-        ttg::SliceEncodingAttr::get(context, axis, newSrcLayout);
+                         srcShape, numWarps, CTALayout);
 
-    auto newResultLayout = replaceCTALayout(newResultLayout1,
-                         srcShape, numWarps, ResultCTALayout);
+    auto newResultLayout =
+        ttg::SliceEncodingAttr::get(context, axis, newSrcLayout);
     
     unsigned numOperands = reduce.getNumOperands();
     SmallVector<Attribute> newSrcLayoutVec(numOperands, newSrcLayout);
@@ -596,13 +590,17 @@ void CTAPlanner::insertCasts(Operation *op,
 
   Location loc = op->getLoc();
   OpBuilder builder(op->getContext());
-
+  llvm::errs() << "\n insertCasts " << op << "\n";
+  op->dump();
   builder.setInsertionPoint(op);
   for (unsigned i = 0; i < op->getNumOperands(); ++i) {
     Value operand = op->getOperand(i);
     auto operandTy = operand.getType();
     if (triton::isTensorOrTensorPointerType(operandTy)) {
       operandTy = replaceLayout(operandTy, newOperandLayouts[i]);
+      llvm::errs() << "Inserting cast for input" << operand << "\n";
+      operand.dump();
+      operandTy.dump();
       auto cast = markBackward(builder.create<CastOp>(loc, operandTy, operand));
       op->setOperand(i, cast.getResult(0));
       queue.push(cast);
@@ -616,6 +614,9 @@ void CTAPlanner::insertCasts(Operation *op,
     if (triton::isTensorOrTensorPointerType(resultTy)) {
       // change result type of the op to the new layout
       resultTy = replaceLayout(resultTy, newResultLayouts[i]);
+      llvm::errs() << "Inserting cast for res " << result << "\n";
+      result.dump();
+      resultTy.dump();
       // create a new cast op with the new layout
       auto cast =
           markForward(builder.create<CastOp>(loc, result.getType(), result));
@@ -659,6 +660,8 @@ bool CTAPlanner::processLoadStore(Operation *op, Attribute layout) {
   //     LoadOp -> SliceLayout
   // Transform to:
   //     LoadOp -> originalLayout -> ConvertLayout(DSmem) -> SliceLayout
+  llvm::errs() << "\n Process LoadStore " << op << "\n";
+  op->dump();
   if (auto sliceLayout = mlir::dyn_cast<ttg::SliceEncodingAttr>(layout)) {
     auto dim = sliceLayout.getDim();
     auto CTAsPerCGA = ttg::getCTAsPerCGA(sliceLayout.getParent());
@@ -975,7 +978,7 @@ bool CTAPlanner::processOpFallback(Operation *op) {
   Location loc = op->getLoc();
   OpBuilder builder(op->getContext());
 
-  llvm::errs() << "Dumping \n";
+  llvm::errs() << "processOpFallback \n";
   op->dump();
 
   builder.setInsertionPoint(op);

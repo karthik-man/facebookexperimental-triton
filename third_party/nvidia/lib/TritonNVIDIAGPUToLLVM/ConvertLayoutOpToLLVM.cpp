@@ -271,8 +271,8 @@ public:
             srcLayout) &&
         isa<MmaEncodingTrait, BlockedEncodingAttr, SliceEncodingAttr>(
             dstLayout)) {
-      // if (shouldUseDistSmem(srcLayout, dstLayout))
-      //   return lowerDistToDistWithDistSmem(op, adaptor, rewriter, targetInfo);
+      if (shouldUseDistSmem(srcLayout, dstLayout))
+        return lowerDistToDistWithDistSmem(op, adaptor, rewriter, targetInfo);
     }
 
     return failure();
