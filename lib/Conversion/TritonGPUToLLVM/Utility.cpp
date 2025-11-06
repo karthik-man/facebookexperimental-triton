@@ -1342,7 +1342,7 @@ Value getProfileScratchPtr(Location loc, RewriterBase &rewriter,
 }
 
 Value getSharedMemoryBase(Location loc, RewriterBase &rewriter,
-                          const TargetInfoBase &target, Operation *op) {
+                          const TargetInfoBase &target, Operation *op, unsigned intraBuffOffset) {
   auto ptrTy = LLVM::LLVMPointerType::get(rewriter.getContext(),
                                           target.getSharedAddressSpace());
   auto func = op->template getParentOfType<FunctionOpInterface>();
@@ -1354,7 +1354,7 @@ Value getSharedMemoryBase(Location loc, RewriterBase &rewriter,
                       .getValue()
                       .getZExtValue();
   auto b = TritonLLVMOpBuilder(loc, rewriter);
-  Value offVal = b.i32_val(offset);
+  Value offVal = b.i32_val(offset + intraBuffOffset);
   Value base =
       b.gep(ptrTy, i8_ty, LLVM::getStackPointer(rewriter, func), offVal);
   return base;

@@ -451,7 +451,7 @@ Value getProfileScratchPtr(Location loc, RewriterBase &rewriter,
                            FunctionOpInterface funcOp);
 
 Value getSharedMemoryBase(Location loc, RewriterBase &rewriter,
-                          const TargetInfoBase &target, Operation *op);
+                          const TargetInfoBase &target, Operation *op, unsigned intraBuffOffset=0);
 
 // -----------------------------------------------------------------------
 // MXFP utilities

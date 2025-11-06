@@ -115,31 +115,46 @@ SmallVector<unsigned> ReduceOpHelper::getScratchRepShape() {
 
   smemShape = convertType<unsigned>(srcShape);
   smemShape[axis] = getInterWarpSizeWithUniqueData();
-  // unsigned numReductionCTAs = getNumReductionCTAs();
-  // if (numReductionCTAs > 1) {
-  //   smemShape.insert(smemShape.begin(), numReductionCTAs);
-  // }
   return smemShape;
 }
 
-unsigned ReduceOpHelper::getScratchSizeInBytes() {
-  auto smemShape = getScratchRepShape();
-  auto elems = product<unsigned>(smemShape);
-
-  unsigned bytesPerElem = 0;
-  for (const auto &ty : srcElementTypes) {
-    bytesPerElem += ceil<unsigned>(ty.getIntOrFloatBitWidth(), 8);
-  }
-  unsigned localReductionBufferSize = bytesPerElem * elems;
-  unsigned crossCTAReductionBufferSize = 0;
-  
-  // Remote Reudction Buffer Size
+SmallVector<unsigned> ReduceOpHelper::getCrossCTAScratchRepShape() {
+  // Reudction Buffer for Cross CTA reduction
   if (isCrossCTAReduction()) {
-    auto numReductionCTAs = getNumReductionCTAs();
-    smemShape[axis] = numReductionCTAs;
-    elems = product<unsigned>(smemShape);
-    crossCTAReductionBufferSize = bytesPerElem * elems;
+    SmallVector<unsigned> smemShape = convertType<unsigned>(srcShape);
+    smemShape[axis] = getNumReductionCTAs();
+    return smemShape;
   }
+  return {0, 0};
+}
+
+unsigned ReduceOpHelper::getIntraCTAReductionBufferSize() {
+   auto smemShape = getScratchRepShape();
+  auto elems = product<unsigned>(smemShape);
+  return elementSizeInBytes() * elems;
+}
+
+unsigned ReduceOpHelper::elementSizeInBytes() {
+  unsigned bytesPerElem = 0;
+    for (const auto &ty : srcElementTypes) {
+      bytesPerElem += ceil<unsigned>(ty.getIntOrFloatBitWidth(), 8);
+    }
+    return bytesPerElem;
+}
+
+unsigned ReduceOpHelper::getCrossCTAReductionBufferSize() {
+  unsigned crossCTAReductionBufferSize = 0;
+  if (isCrossCTAReduction()) {
+   
+    auto elems = product<unsigned>(getCrossCTAScratchRepShape());
+    crossCTAReductionBufferSize = elementSizeInBytes() * elems;
+  }
+  return crossCTAReductionBufferSize;
+}
+
+unsigned ReduceOpHelper::getScratchSizeInBytes() {
+  unsigned localReductionBufferSize = getIntraCTAReductionBufferSize();
+  unsigned crossCTAReductionBufferSize = getCrossCTAReductionBufferSize();
   return localReductionBufferSize + crossCTAReductionBufferSize;
 }
 

@@ -129,7 +129,7 @@ public:
   // Helper to compute the smem bases in both reductions and scans
   SmallVector<Value> getSmemBases(SourceOp op, unsigned elems,
                                   ConversionPatternRewriter &rewriter,
-                                  const TargetInfoBase &targetInfo) const {
+                                  const TargetInfoBase &targetInfo, unsigned intraBuffOffset=0) const {
     auto loc = op.getLoc();
     auto b = TritonLLVMOpBuilder(loc, rewriter);
     // indices will store the index of the op operands in descending order
@@ -144,7 +144,7 @@ public:
     // Assign base index to each operand in their order in indices
     std::map<unsigned, Value> indexToBase;
     auto basePtr =
-        LLVM::getSharedMemoryBase(loc, rewriter, targetInfo, op.getOperation());
+        LLVM::getSharedMemoryBase(loc, rewriter, targetInfo, op.getOperation(), intraBuffOffset);
     indexToBase[indices[0]] = basePtr;
     for (unsigned i = 1; i < op.getNumOperands(); ++i) {
       indexToBase[indices[i]] =

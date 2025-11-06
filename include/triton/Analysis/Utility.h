@@ -59,9 +59,16 @@ public:
   // The shape of the shared memory space needed for the reduction.
   SmallVector<unsigned> getScratchRepShape();
 
+  SmallVector<unsigned> getCrossCTAScratchRepShape();
+
   SmallVector<unsigned> getOrderWithAxisAtBeginning();
 
   unsigned getScratchSizeInBytes();
+
+  unsigned getIntraCTAReductionBufferSize();
+  unsigned getCrossCTAReductionBufferSize();
+
+  unsigned elementSizeInBytes();
 
   bool isReduceWithinCTA();
 
