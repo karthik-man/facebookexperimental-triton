@@ -233,15 +233,7 @@ class ClusterCTAIdOpPattern : public OpRewritePattern<ttn::ClusterCTAIdOp> {
   LogicalResult matchAndRewrite(ttn::ClusterCTAIdOp op,
                                 PatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
-    auto a0 = rewriter.create<NVVM::BlockInClusterIdXOp>(loc, i32_ty);
-    auto a1 = rewriter.create<NVVM::BlockInClusterIdYOp>(loc, i32_ty);
-    auto a2 = rewriter.create<NVVM::BlockInClusterIdZOp>(loc, i32_ty);
-    auto a3 = rewriter.create<NVVM::ClusterDimBlocksXOp>(loc, i32_ty);
-    auto a4 = rewriter.create<NVVM::ClusterDimBlocksYOp>(loc, i32_ty);
-    auto p1 = rewriter.create<LLVM::MulOp>(loc, a2, a4);
-    auto s1 = rewriter.create<LLVM::AddOp>(loc, a1, p1);
-    auto p2 = rewriter.create<LLVM::MulOp>(loc, s1, a3);
-    auto res = rewriter.create<LLVM::AddOp>(loc, a0, p2);
+    auto res = NVVM::ClusterId::create(rewriter, op.getLoc(), i32_ty);
     rewriter.replaceOp(op, res);
     return success();
   }

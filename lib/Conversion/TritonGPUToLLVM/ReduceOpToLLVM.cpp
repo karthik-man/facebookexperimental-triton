@@ -78,7 +78,7 @@ public:
     // sync(rewriter, loc, op);
 
     // set output values
-    loadReductionAndPackResult(helper, crossClusterSmemShape, smemBasesClusterReduce, rewriter);
+    loadReductionAndPackResult(helper, intraClusterSmemShape, smemBases, rewriter);
 
     return success();
   }
@@ -272,13 +272,64 @@ private:
     }
   }
 
-  void storeClusterReduceToRemoteSharedMemory(
-      ReduceOpHelper &helper,
-      std::map<SmallVector<unsigned>, SmallVector<Value>> &accs,
-      std::map<SmallVector<unsigned>, SmallVector<Value>> &indices,
-      SmallVector<Value> &smemBases,
-      ConversionPatternRewriter &rewriter,
-      const TargetInfoBase &targetInfo) const {
+  // void storeClusterReduceToRemoteSharedMemory(
+  //     ReduceOpHelper &helper,
+  //     std::map<SmallVector<unsigned>, SmallVector<Value>> &accs,
+  //     std::map<SmallVector<unsigned>, SmallVector<Value>> &indices,
+  //     SmallVector<Value> &smemBases,
+  //     ConversionPatternRewriter &rewriter,
+  //     const TargetInfoBase &targetInfo) const {
+  //   triton::ReduceOp op = helper.getOperation();
+  //   Location loc = op.getLoc();
+  //   auto b = TritonLLVMOpBuilder(loc, rewriter);
+  //   auto srcLayout =
+  //       mlir::cast<DistributedEncodingTrait>(helper.getSrcLayout());
+  //   auto ctaId = targetInfo.getClusterCTAId(rewriter, loc);
+  //   unsigned axis = op.getAxis();
+  //   auto smemShape = helper.getScratchRepShape();
+
+  //   // Lezcano: We should move all the shared memory logic to use LLs natively
+  //   auto srcShape = helper.getSrcShape();
+  //   auto kCTA = rewriter.getStringAttr("block");
+  //   auto [multiDimCTAId, isRepresentativeCTA] =
+  //       delinearize(rewriter, loc, srcLayout, srcShape, kCTA, ctaId);
+
+    
+    
+
+  //   // auto kLane = rewriter.getStringAttr("lane");
+  //   // auto [multiDimLaneId, isRepresentativeLane] =
+  //   //     delinearize(rewriter, loc, srcLayout, srcShape, kLane, laneId);
+  //   // auto kWarp = rewriter.getStringAttr("warp");
+  //   // auto [multiDimWarpId, isRepresentativeWarp] =
+  //   //     delinearize(rewriter, loc, srcLayout, srcShape, kWarp, warpId);
+
+  //   // Value laneIdAxis = multiDimLaneId[axis];
+  //   // Value laneZero = b.icmp_eq(laneIdAxis, b.i32_val(0));
+  //   // Value write =
+  //   //     b.and_(b.and_(isRepresentativeLane, isRepresentativeWarp), laneZero);
+
+  //   // Value warpIdAxis = multiDimWarpId[axis];
+
+  //   // auto smemOrder = helper.getOrderWithAxisAtBeginning();
+  //   // for (auto it : accs) {
+  //   //   const SmallVector<unsigned> &key = it.first;
+  //   //   SmallVector<Value> &acc = it.second;
+
+  //   //   SmallVector<Value> writeIdx = indices[key];
+  //   //   writeIdx[axis] = warpIdAxis;
+  //   //   Value writeOffset =
+  //   //       linearize(rewriter, loc, writeIdx, smemShape, smemOrder);
+  //   //   for (unsigned i = 0; i < op.getNumOperands(); ++i) {
+  //   //     auto elemTy = getElementType(op, i);
+  //   //     Value writePtr =
+  //   //         b.gep(smemBases[i].getType(), elemTy, smemBases[i], writeOffset);
+  //   //     targetInfo.storeShared(rewriter, loc, writePtr, acc[i], write);
+  //     // }
+  //   // }
+  // }
+
+  void isRepresentativeCTA(ReduceOpHelper &helper, ConversionPatternRewriter &rewriter, SmallVector<Value> &ctaInfo) const {
     triton::ReduceOp op = helper.getOperation();
     Location loc = op.getLoc();
     auto b = TritonLLVMOpBuilder(loc, rewriter);
@@ -288,69 +339,30 @@ private:
     unsigned axis = op.getAxis();
     auto smemShape = helper.getScratchRepShape();
 
-    // Lezcano: We should move all the shared memory logic to use LLs natively
     auto srcShape = helper.getSrcShape();
     auto kCTA = rewriter.getStringAttr("block");
-    auto [multiDimCTAId, isRepresentativeWarp] =
+    auto [multiDimCTAId, isRepresentativeCTA] =
         delinearize(rewriter, loc, srcLayout, srcShape, kCTA, ctaId);
-
-    
-    
-
-    // auto kLane = rewriter.getStringAttr("lane");
-    // auto [multiDimLaneId, isRepresentativeLane] =
-    //     delinearize(rewriter, loc, srcLayout, srcShape, kLane, laneId);
-    // auto kWarp = rewriter.getStringAttr("warp");
-    // auto [multiDimWarpId, isRepresentativeWarp] =
-    //     delinearize(rewriter, loc, srcLayout, srcShape, kWarp, warpId);
-
-    // Value laneIdAxis = multiDimLaneId[axis];
-    // Value laneZero = b.icmp_eq(laneIdAxis, b.i32_val(0));
-    // Value write =
-    //     b.and_(b.and_(isRepresentativeLane, isRepresentativeWarp), laneZero);
-
-    // Value warpIdAxis = multiDimWarpId[axis];
-
-    // auto smemOrder = helper.getOrderWithAxisAtBeginning();
-    // for (auto it : accs) {
-    //   const SmallVector<unsigned> &key = it.first;
-    //   SmallVector<Value> &acc = it.second;
-
-    //   SmallVector<Value> writeIdx = indices[key];
-    //   writeIdx[axis] = warpIdAxis;
-    //   Value writeOffset =
-    //       linearize(rewriter, loc, writeIdx, smemShape, smemOrder);
-    //   for (unsigned i = 0; i < op.getNumOperands(); ++i) {
-    //     auto elemTy = getElementType(op, i);
-    //     Value writePtr =
-    //         b.gep(smemBases[i].getType(), elemTy, smemBases[i], writeOffset);
-    //     targetInfo.storeShared(rewriter, loc, writePtr, acc[i], write);
-      // }
-    // }
+    ctaInfo.push_back(ctaId);
+    ctaInfo.push_back(isRepresentativeCTA);
+    return;
   }
 
-  bool requiresCrossCTAStores(ReduceOpHelper &helper, ConversionPatternRewriter &rewriter ) const {
-    triton::ReduceOp op = helper.getOperation();
-    Location loc = op.getLoc();
-    auto b = TritonLLVMOpBuilder(loc, rewriter);
-    auto srcLayout =
-        mlir::cast<DistributedEncodingTrait>(helper.getSrcLayout());
-    auto ctaId = targetInfo.getClusterCTAId(rewriter, loc);
-    unsigned axis = op.getAxis();
-    auto smemShape = helper.getScratchRepShape();
-
-    // Lezcano: We should move all the shared memory logic to use LLs natively
-    auto srcShape = helper.getSrcShape();
-    auto kCTA = rewriter.getStringAttr("block");
-    auto [multiDimCTAId, isRepresentativeWarp] =
-        delinearize(rewriter, loc, srcLayout, srcShape, kCTA, ctaId);
-  }
+  // Value isCTA0(ReduceOpHelper &helper, ConversionPatternRewriter &rewriter) {
+  //   triton::ReduceOp op = helper.getOperation();
+  //   Location loc = op.getLoc();
+  //   auto b = TritonLLVMOpBuilder(loc, rewriter);
+  //   Value zero = b.i32_val(0);
+  //   Value ctaId = targetInfo.getClusterCTAId(rewriter, loc);
+  //   Value isCTA0 = b.icmp_eq(ctaId, zero);
+  //   return isCTA0;
+  // }
 
   // Load the reduction of each warp and accumulate them to a final value and
   // store back to shared memory.
   void accumulatePartialReductions(ReduceOpHelper &helper,
                                    SmallVector<Value> &smemBases,
-                                   ConversionPatternRewriter &rewriter, bool localReduce=true) const {
+                                   ConversionPatternRewriter &rewriter) const {
     triton::ReduceOp op = helper.getOperation();
     auto smemShape = helper.getScratchRepShape();
     unsigned elems = product<unsigned>(smemShape); 
@@ -400,13 +412,30 @@ private:
       SmallVector<Value> smemBasesClusterReduce =
         getSmemBases(op, product<unsigned>(crossClusterSmemShape), rewriter, targetInfo, helper.getIntraCTAReductionBufferSize());
 
+      Block *currentBlock = rewriter.getInsertionBlock();
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
-        if (requiresCrossCTAStores())
-        {
-
-        } else {
+           SmallVector<Value> ctaInfo;
+           isRepresentativeCTA(helper, rewriter, ctaInfo);
+           Value ctaId = ctaInfo[0];
+           Value isCTA0 = b.icmp_eq(ctaId, zero);
+          // split blocks
+          Block *localStoreCTABlock = rewriter.getInsertionBlock()->splitBlock(rewriter.getInsertionPoint());
+          Block *remoteStoreCTABlock = localStoreCTABlock->splitBlock(localStoreCTABlock->begin());
+          Block *mergeBlock = remoteStoreCTABlock->splitBlock(remoteStoreCTABlock->begin());
+          // isCTA0 check
+          rewriter.setInsertionPointToEnd(rewriter.getBlock());
+          rewriter.create<LLVM::CondBrOp>(loc, isCTA0, localStoreCTABlock, remoteStoreCTABlock);
+          // Local store
+          rewriter.setInsertionPointToStart(localStoreCTABlock);
           targetInfo.storeShared(rewriter, loc, writePtrs[i], acc[i], pred);
-        }
+          rewriter.create<LLVM::BrOp>(loc, mergeBlock);
+
+          // Remote store
+          rewriter.setInsertionPointToStart(remoteStoreCTABlock);
+          // targetInfo.storeShared(rewriter, loc, writePtrs[i], acc[i], pred);
+          rewriter.create<LLVM::BrOp>(loc, mergeBlock);
+
+          rewriter.setInsertionPointToStart(mergeBlock);
       }
 
       if (round != elemsPerThread - 1) {
