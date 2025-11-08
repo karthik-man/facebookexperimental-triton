@@ -12,6 +12,8 @@ public:
 
   virtual Value getClusterCTAId(RewriterBase &rewriter, Location loc) const = 0;
 
+  virtual void clusterBarrier(RewriterBase &rewriter, Location loc) const = 0;
+
   virtual Value ballot(RewriterBase &rewriter, Location loc, Type type,
                        Value cmp) const = 0;
 

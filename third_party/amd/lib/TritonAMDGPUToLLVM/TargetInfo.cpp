@@ -88,6 +88,10 @@ Value TargetInfo::ballot(RewriterBase &rewriter, Location loc, Type type,
   return rewriter.create<ROCDL::BallotOp>(loc, type, cmp);
 }
 
+void TargetInfo::clusterBarrier(RewriterBase &rewriter, Location loc) const {
+
+}
+
 void TargetInfo::barrier(Location loc, RewriterBase &rewriter,
                          bool isWarpSync) const {
   if (isWarpSync) {

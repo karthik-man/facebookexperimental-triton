@@ -49,7 +49,6 @@ public:
 
     // Compute a shared memory base per operand.
     auto intraClusterSmemShape = helper.getScratchRepShape();
-    auto crossClusterSmemShape = helper.getCrossCTAScratchRepShape();
 
     SmallVector<Value> smemBases =
         getSmemBases(op, product<unsigned>(intraClusterSmemShape), rewriter, targetInfo);
@@ -64,7 +63,10 @@ public:
     //
     // Each thread needs to process:
     //   elemsPerThread = sizeInterWarps * s1 * s2 .. Sn / numThreads
-    accumulatePartialReductions(helper, smemBases, rewriter);
+    auto crossClusterSmemShape = helper.getCrossCTAScratchRepShape();
+    SmallVector<Value> smemBasesClusterReduce =
+        getSmemBases(op, product<unsigned>(crossClusterSmemShape), rewriter, targetInfo, helper.getIntraCTAReductionBufferSize());
+    accumulatePartialReductions(helper, smemBases, smemBasesClusterReduce, rewriter);
 
     // SmallVector<Value> smemBasesClusterReduce =
     //     getSmemBases(op, product<unsigned>(crossClusterSmemShape), rewriter, targetInfo, helper.getIntraCTAReductionBufferSize());
@@ -362,6 +364,7 @@ private:
   // store back to shared memory.
   void accumulatePartialReductions(ReduceOpHelper &helper,
                                    SmallVector<Value> &smemBases,
+                                   SmallVector<Value> &crosClusterSmemBases,
                                    ConversionPatternRewriter &rewriter) const {
     triton::ReduceOp op = helper.getOperation();
     auto smemShape = helper.getScratchRepShape();
@@ -397,10 +400,13 @@ private:
       // only the first thread in each sizeInterWarps is writing
       Value writeOffset = readOffset;
       SmallVector<Value> writePtrs(op.getNumOperands());
+      SmallVector<Value> crossCTAWritePtrs(op.getNumOperands());
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
         auto elemTy = getElementType(op, i);
         writePtrs[i] =
             b.gep(smemBases[i].getType(), elemTy, smemBases[i], writeOffset);
+        crossCTAWritePtrs[i] =
+            b.gep(crosClusterSmemBases[i].getType(), elemTy, crosClusterSmemBases[i], writeOffset);
       }
 
       Value laneIdModSizeInterWarps = b.urem(laneId, b.i32_val(sizeInterWarps));
@@ -408,10 +414,6 @@ private:
           b.icmp_eq(laneIdModSizeInterWarps, zero);
       Value pred = b.and_(threadIsNeeded, laneIdModSizeInterWarpsIsZero);
     
-      auto crossClusterSmemShape = helper.getCrossCTAScratchRepShape();
-      SmallVector<Value> smemBasesClusterReduce =
-        getSmemBases(op, product<unsigned>(crossClusterSmemShape), rewriter, targetInfo, helper.getIntraCTAReductionBufferSize());
-
       Block *currentBlock = rewriter.getInsertionBlock();
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
            SmallVector<Value> ctaInfo;
@@ -432,11 +434,15 @@ private:
 
           // Remote store
           rewriter.setInsertionPointToStart(remoteStoreCTABlock);
-          // targetInfo.storeShared(rewriter, loc, writePtrs[i], acc[i], pred);
+          targetInfo.storeShared(rewriter, loc, crossCTAWritePtrs[i], acc[i], pred);
+          targetInfo.storeDShared(rewriter, loc, crossCTAWritePtrs[i], /*ctaId=*/zero, acc[i], pred);
           rewriter.create<LLVM::BrOp>(loc, mergeBlock);
 
           rewriter.setInsertionPointToStart(mergeBlock);
+          
       }
+      // cluster barrier
+      targetInfo.clusterBarrier(rewriter, loc);
 
       if (round != elemsPerThread - 1) {
         readOffset = b.add(readOffset, b.i32_val(numThreads));

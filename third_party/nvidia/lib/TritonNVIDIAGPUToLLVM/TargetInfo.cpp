@@ -178,6 +178,12 @@ static bool isConstantTruePred(Value pred) {
   return false;
 }
 
+void TargetInfo::clusterBarrier(RewriterBase &rewriter, Location loc) const {
+   // Cluster barrier
+   rewriter.create<triton::nvidia_gpu::ClusterArriveOp>(loc, false);
+   rewriter.create<triton::nvidia_gpu::ClusterWaitOp>(loc);
+}
+
 void TargetInfo::storeDShared(RewriterBase &rewriter, Location loc, Value ptr,
                               std::optional<Value> ctaId, Value val,
                               Value pred) const {
