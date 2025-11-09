@@ -154,7 +154,12 @@ void TargetInfo::barrier(Location loc, RewriterBase &rewriter,
 
 static Value mapa(RewriterBase &rewriter, Location loc, Value ptr, Value ctaid,
                   Value pred) {
-  return rewriter.create<NVVM::MapaOp>(loc, ptr.getType(), ptr, ctaid);
+  auto ptrTy = cast<LLVM::LLVMPointerType>(ptr.getType());
+  assert(ptrTy.getAddressSpace() == 3 &&
+           "Invalid src llvm addr space for mapa");
+  MLIRContext *ctx = rewriter.getContext();
+  auto dsmPtrTy = ptr_ty(ctx, 7);           
+  return rewriter.create<NVVM::MapaOp>(loc, dsmPtrTy, ptr, ctaid);
 }
 
 static std::string getConstraintForBitwidth(unsigned bitwidth) {

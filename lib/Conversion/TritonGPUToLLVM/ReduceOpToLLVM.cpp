@@ -337,15 +337,15 @@ private:
     auto b = TritonLLVMOpBuilder(loc, rewriter);
     auto srcLayout =
         mlir::cast<DistributedEncodingTrait>(helper.getSrcLayout());
-    auto ctaId = targetInfo.getClusterCTAId(rewriter, loc);
+    auto ctaRank = targetInfo.getClusterCTAId(rewriter, loc);
     unsigned axis = op.getAxis();
     auto smemShape = helper.getScratchRepShape();
 
     auto srcShape = helper.getSrcShape();
     auto kCTA = rewriter.getStringAttr("block");
     auto [multiDimCTAId, isRepresentativeCTA] =
-        delinearize(rewriter, loc, srcLayout, srcShape, kCTA, ctaId);
-    ctaInfo.push_back(ctaId);
+        delinearize(rewriter, loc, srcLayout, srcShape, kCTA, ctaRank);
+    ctaInfo.push_back(ctaRank);
     ctaInfo.push_back(isRepresentativeCTA);
     return;
   }
@@ -377,6 +377,8 @@ private:
     int numLanes = triton::gpu::TritonGPUDialect::getThreadsPerWarp(mod);
     int numWarps = triton::gpu::lookupNumWarps(op);
     int numThreads = numLanes * numWarps;
+    unsigned numReductionCTAs = helper.getNumReductionCTAs();
+
 
     Value threadId = getThreadId(rewriter, loc);
     Value warpSize = b.i32_val(numLanes);
@@ -413,20 +415,25 @@ private:
       Value laneIdModSizeInterWarpsIsZero =
           b.icmp_eq(laneIdModSizeInterWarps, zero);
       Value pred = b.and_(threadIsNeeded, laneIdModSizeInterWarpsIsZero);
+      
     
       Block *currentBlock = rewriter.getInsertionBlock();
+
+      SmallVector<Value> ctaClusterInfo;
+      isRepresentativeCTA(helper, rewriter, ctaClusterInfo);
+      Value ctaRank = ctaClusterInfo[0];
+      Value isCTARank0 = b.icmp_eq(ctaRank, zero);
+      Value isRepresentativeCTA = ctaClusterInfo[1];
+      pred = b.and_(pred, isRepresentativeCTA);
+
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
-           SmallVector<Value> ctaInfo;
-           isRepresentativeCTA(helper, rewriter, ctaInfo);
-           Value ctaId = ctaInfo[0];
-           Value isCTA0 = b.icmp_eq(ctaId, zero);
           // split blocks
           Block *localStoreCTABlock = rewriter.getInsertionBlock()->splitBlock(rewriter.getInsertionPoint());
           Block *remoteStoreCTABlock = localStoreCTABlock->splitBlock(localStoreCTABlock->begin());
           Block *mergeBlock = remoteStoreCTABlock->splitBlock(remoteStoreCTABlock->begin());
           // isCTA0 check
           rewriter.setInsertionPointToEnd(rewriter.getBlock());
-          rewriter.create<LLVM::CondBrOp>(loc, isCTA0, localStoreCTABlock, remoteStoreCTABlock);
+          rewriter.create<LLVM::CondBrOp>(loc, isCTARank0, localStoreCTABlock, remoteStoreCTABlock);
           // Local store
           rewriter.setInsertionPointToStart(localStoreCTABlock);
           targetInfo.storeShared(rewriter, loc, writePtrs[i], acc[i], pred);
@@ -434,8 +441,7 @@ private:
 
           // Remote store
           rewriter.setInsertionPointToStart(remoteStoreCTABlock);
-          targetInfo.storeShared(rewriter, loc, crossCTAWritePtrs[i], acc[i], pred);
-          targetInfo.storeDShared(rewriter, loc, crossCTAWritePtrs[i], /*ctaId=*/zero, acc[i], pred);
+          targetInfo.storeDShared(rewriter, loc, crossCTAWritePtrs[i], zero/*ctaId=*/, acc[i], pred);
           rewriter.create<LLVM::BrOp>(loc, mergeBlock);
 
           rewriter.setInsertionPointToStart(mergeBlock);
