@@ -50,8 +50,8 @@ public:
     // Compute a shared memory base per operand.
     auto intraClusterSmemShape = helper.getScratchRepShape();
 
-    SmallVector<Value> smemBases =
-        getSmemBases(op, product<unsigned>(intraClusterSmemShape), rewriter, targetInfo);
+    SmallVector<Value> smemBases = getSmemBases(
+        op, product<unsigned>(intraClusterSmemShape), rewriter, targetInfo);
 
     storeWarpReduceToSharedMemory(helper, accs, indices, smemBases, rewriter);
 
@@ -65,13 +65,17 @@ public:
     //   elemsPerThread = sizeInterWarps * s1 * s2 .. Sn / numThreads
     auto crossClusterSmemShape = helper.getCrossCTAScratchRepShape();
     SmallVector<Value> smemBasesClusterReduce =
-        getSmemBases(op, product<unsigned>(crossClusterSmemShape), rewriter, targetInfo, helper.getIntraCTAReductionBufferSize());
-    accumulatePartialReductions(helper, smemBases, smemBasesClusterReduce, rewriter);
+        getSmemBases(op, product<unsigned>(crossClusterSmemShape), rewriter,
+                     targetInfo, helper.getIntraCTAReductionBufferSize());
+    accumulatePartialReductions(helper, smemBases, smemBasesClusterReduce,
+                                rewriter);
 
     // SmallVector<Value> smemBasesClusterReduce =
-    //     getSmemBases(op, product<unsigned>(crossClusterSmemShape), rewriter, targetInfo, helper.getIntraCTAReductionBufferSize());
+    //     getSmemBases(op, product<unsigned>(crossClusterSmemShape), rewriter,
+    //     targetInfo, helper.getIntraCTAReductionBufferSize());
 
-    // storeClusterReduceToRemoteSharedMemory(helper, accs, indices, smemBasesClusterReduce, rewriter, targetInfo);
+    // storeClusterReduceToRemoteSharedMemory(helper, accs, indices,
+    // smemBasesClusterReduce, rewriter, targetInfo);
 
     // Moved this sync into accumulatePartialReductions
     // We could avoid this barrier in some of the layouts, however this is not
@@ -80,7 +84,8 @@ public:
     // sync(rewriter, loc, op);
 
     // set output values
-    loadReductionAndPackResult(helper, intraClusterSmemShape, smemBases, rewriter);
+    loadReductionAndPackResult(helper, intraClusterSmemShape, smemBases,
+                               rewriter);
 
     return success();
   }
@@ -290,14 +295,11 @@ private:
   //   unsigned axis = op.getAxis();
   //   auto smemShape = helper.getScratchRepShape();
 
-  //   // Lezcano: We should move all the shared memory logic to use LLs natively
-  //   auto srcShape = helper.getSrcShape();
-  //   auto kCTA = rewriter.getStringAttr("block");
-  //   auto [multiDimCTAId, isRepresentativeCTA] =
+  //   // Lezcano: We should move all the shared memory logic to use LLs
+  //   natively auto srcShape = helper.getSrcShape(); auto kCTA =
+  //   rewriter.getStringAttr("block"); auto [multiDimCTAId,
+  //   isRepresentativeCTA] =
   //       delinearize(rewriter, loc, srcLayout, srcShape, kCTA, ctaId);
-
-    
-    
 
   //   // auto kLane = rewriter.getStringAttr("lane");
   //   // auto [multiDimLaneId, isRepresentativeLane] =
@@ -309,7 +311,8 @@ private:
   //   // Value laneIdAxis = multiDimLaneId[axis];
   //   // Value laneZero = b.icmp_eq(laneIdAxis, b.i32_val(0));
   //   // Value write =
-  //   //     b.and_(b.and_(isRepresentativeLane, isRepresentativeWarp), laneZero);
+  //   //     b.and_(b.and_(isRepresentativeLane, isRepresentativeWarp),
+  //   laneZero);
 
   //   // Value warpIdAxis = multiDimWarpId[axis];
 
@@ -325,13 +328,16 @@ private:
   //   //   for (unsigned i = 0; i < op.getNumOperands(); ++i) {
   //   //     auto elemTy = getElementType(op, i);
   //   //     Value writePtr =
-  //   //         b.gep(smemBases[i].getType(), elemTy, smemBases[i], writeOffset);
+  //   //         b.gep(smemBases[i].getType(), elemTy, smemBases[i],
+  //   writeOffset);
   //   //     targetInfo.storeShared(rewriter, loc, writePtr, acc[i], write);
   //     // }
   //   // }
   // }
 
-  void isRepresentativeCTA(ReduceOpHelper &helper, ConversionPatternRewriter &rewriter, SmallVector<Value> &ctaInfo) const {
+  void isRepresentativeCTA(ReduceOpHelper &helper,
+                           ConversionPatternRewriter &rewriter,
+                           SmallVector<Value> &ctaInfo) const {
     triton::ReduceOp op = helper.getOperation();
     Location loc = op.getLoc();
     auto b = TritonLLVMOpBuilder(loc, rewriter);
@@ -368,8 +374,10 @@ private:
                                    ConversionPatternRewriter &rewriter) const {
     triton::ReduceOp op = helper.getOperation();
     auto smemShape = helper.getScratchRepShape();
-    unsigned elems = product<unsigned>(smemShape); 
-    unsigned sizeInterWarps = helper.getInterWarpSizeWithUniqueData(); // getWarpsPerCTA(srcEncoding, srcShape)[axis]
+    unsigned elems = product<unsigned>(smemShape);
+    unsigned sizeInterWarps =
+        helper.getInterWarpSizeWithUniqueData(); // getWarpsPerCTA(srcEncoding,
+                                                 // srcShape)[axis]
     Location loc = op.getLoc();
     auto b = TritonLLVMOpBuilder(loc, rewriter);
 
@@ -378,7 +386,6 @@ private:
     int numWarps = triton::gpu::lookupNumWarps(op);
     int numThreads = numLanes * numWarps;
     unsigned numReductionCTAs = helper.getNumReductionCTAs();
-
 
     Value threadId = getThreadId(rewriter, loc);
     Value warpSize = b.i32_val(numLanes);
@@ -399,8 +406,16 @@ private:
       }
       warpReduce(rewriter, loc, acc, op, sizeInterWarps, 1 /* interleave */,
                  threadIsNeeded);
+
+      SmallVector<Value> ctaClusterInfo;
+      isRepresentativeCTA(helper, rewriter, ctaClusterInfo);
+      Value ctaRank = ctaClusterInfo[0];
+      Value isCTARank0 = b.icmp_eq(ctaRank, zero);
+      Value isRepresentativeCTA = ctaClusterInfo[1];
+
       // only the first thread in each sizeInterWarps is writing
       Value writeOffset = readOffset;
+      Value crossCTAWriteOffset = b.mul(readOffset, ctaRank);
       SmallVector<Value> writePtrs(op.getNumOperands());
       SmallVector<Value> crossCTAWritePtrs(op.getNumOperands());
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
@@ -408,56 +423,58 @@ private:
         writePtrs[i] =
             b.gep(smemBases[i].getType(), elemTy, smemBases[i], writeOffset);
         crossCTAWritePtrs[i] =
-            b.gep(crosClusterSmemBases[i].getType(), elemTy, crosClusterSmemBases[i], writeOffset);
+            b.gep(crosClusterSmemBases[i].getType(), elemTy,
+                  crosClusterSmemBases[i], crossCTAWriteOffset);
       }
 
       Value laneIdModSizeInterWarps = b.urem(laneId, b.i32_val(sizeInterWarps));
       Value laneIdModSizeInterWarpsIsZero =
           b.icmp_eq(laneIdModSizeInterWarps, zero);
       Value pred = b.and_(threadIsNeeded, laneIdModSizeInterWarpsIsZero);
-      
-    
-      Block *currentBlock = rewriter.getInsertionBlock();
 
-      SmallVector<Value> ctaClusterInfo;
-      isRepresentativeCTA(helper, rewriter, ctaClusterInfo);
-      Value ctaRank = ctaClusterInfo[0];
-      Value isCTARank0 = b.icmp_eq(ctaRank, zero);
-      Value isRepresentativeCTA = ctaClusterInfo[1];
+      Block *currentBlock = rewriter.getInsertionBlock();
       pred = b.and_(pred, isRepresentativeCTA);
 
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
-          // split blocks
-          Block *localStoreCTABlock = rewriter.getInsertionBlock()->splitBlock(rewriter.getInsertionPoint());
-          Block *remoteStoreCTABlock = localStoreCTABlock->splitBlock(localStoreCTABlock->begin());
-          Block *mergeBlock = remoteStoreCTABlock->splitBlock(remoteStoreCTABlock->begin());
-          // isCTA0 check
-          rewriter.setInsertionPointToEnd(rewriter.getBlock());
-          rewriter.create<LLVM::CondBrOp>(loc, isCTARank0, localStoreCTABlock, remoteStoreCTABlock);
-          // Local store
-          rewriter.setInsertionPointToStart(localStoreCTABlock);
-          targetInfo.storeShared(rewriter, loc, writePtrs[i], acc[i], pred);
-          rewriter.create<LLVM::BrOp>(loc, mergeBlock);
+        // split blocks
+        Block *localStoreCTABlock = rewriter.getInsertionBlock()->splitBlock(
+            rewriter.getInsertionPoint());
+        Block *remoteStoreCTABlock =
+            localStoreCTABlock->splitBlock(localStoreCTABlock->begin());
+        Block *mergeBlock =
+            remoteStoreCTABlock->splitBlock(remoteStoreCTABlock->begin());
+        // isCTA0 check
+        rewriter.setInsertionPointToEnd(rewriter.getBlock());
+        rewriter.create<LLVM::CondBrOp>(loc, isCTARank0, localStoreCTABlock,
+                                        remoteStoreCTABlock);
+        // Local store
+        rewriter.setInsertionPointToStart(localStoreCTABlock);
+        targetInfo.storeShared(rewriter, loc, writePtrs[i], acc[i], pred);
+        targetInfo.storeShared(rewriter, loc, crossCTAWritePtrs[i], acc[i],
+                               pred);
+        rewriter.create<LLVM::BrOp>(loc, mergeBlock);
 
-          // Remote store
-          rewriter.setInsertionPointToStart(remoteStoreCTABlock);
-          targetInfo.storeDShared(rewriter, loc, crossCTAWritePtrs[i], zero/*ctaId=*/, acc[i], pred);
-          rewriter.create<LLVM::BrOp>(loc, mergeBlock);
+        // Remote store
+        rewriter.setInsertionPointToStart(remoteStoreCTABlock);
+        targetInfo.storeDShared(rewriter, loc, crossCTAWritePtrs[i],
+                                zero /*ctaId=*/, acc[i], pred);
+        rewriter.create<LLVM::BrOp>(loc, mergeBlock);
 
-          rewriter.setInsertionPointToStart(mergeBlock);
-          
+        rewriter.setInsertionPointToStart(mergeBlock);
       }
-      // cluster barrier
-      targetInfo.clusterBarrier(rewriter, loc);
 
       if (round != elemsPerThread - 1) {
         readOffset = b.add(readOffset, b.i32_val(numThreads));
       }
     }
+    // cluster barrier
+    targetInfo.clusterBarrier(rewriter, loc);
+
     // We could avoid this barrier in some of the layouts, however this is not
     // the general case.
     // TODO: optimize the barrier in case the layouts are accepted.
-    sync(rewriter, loc, op);
+
+    // sync(rewriter, loc, op);
   }
 
   // Load the final reduction from shared memory and replace the reduce result

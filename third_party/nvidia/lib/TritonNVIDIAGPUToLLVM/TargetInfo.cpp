@@ -283,7 +283,7 @@ void TargetInfo::storeDShared(RewriterBase &rewriter, Location loc, Value ptr,
 
   PTXBuilder builder;
   auto st = builder.create<>("st")
-                ->o("shared::cta", ctaId.has_value())
+                ->o("shared::cluster", ctaId.has_value())
                 .o("shared", !ctaId.has_value())
                 .v(vec, /*predicate=*/vec > 1)
                 .b(elemBitwidth);
@@ -401,7 +401,7 @@ Value TargetInfo::loadDShared(RewriterBase &rewriter, Location loc, Value ptr,
 
   PTXBuilder builder;
   auto ld = builder.create<>("ld")
-                ->o("shared::cta", ctaId.has_value())
+                ->o("shared::cluster", ctaId.has_value())
                 .o("shared", !ctaId.has_value())
                 .v(vec, /*predicate=*/vec > 1)
                 .b(elemBitwidth);

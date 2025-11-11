@@ -590,7 +590,7 @@ void CTAPlanner::insertCasts(Operation *op,
 
   Location loc = op->getLoc();
   OpBuilder builder(op->getContext());
-  llvm::errs() << "\n insertCasts " << op << "\n";
+  //llvm::errs() << "\n insertCasts " << op << "\n";
   op->dump();
   builder.setInsertionPoint(op);
   for (unsigned i = 0; i < op->getNumOperands(); ++i) {
@@ -598,7 +598,7 @@ void CTAPlanner::insertCasts(Operation *op,
     auto operandTy = operand.getType();
     if (triton::isTensorOrTensorPointerType(operandTy)) {
       operandTy = replaceLayout(operandTy, newOperandLayouts[i]);
-      llvm::errs() << "Inserting cast for input" << operand << "\n";
+      //llvm::errs() << "Inserting cast for input" << operand << "\n";
       operand.dump();
       operandTy.dump();
       auto cast = markBackward(builder.create<CastOp>(loc, operandTy, operand));
@@ -614,7 +614,7 @@ void CTAPlanner::insertCasts(Operation *op,
     if (triton::isTensorOrTensorPointerType(resultTy)) {
       // change result type of the op to the new layout
       resultTy = replaceLayout(resultTy, newResultLayouts[i]);
-      llvm::errs() << "Inserting cast for res " << result << "\n";
+      //llvm::errs() << "Inserting cast for res " << result << "\n";
       result.dump();
       resultTy.dump();
       // create a new cast op with the new layout
@@ -660,7 +660,7 @@ bool CTAPlanner::processLoadStore(Operation *op, Attribute layout) {
   //     LoadOp -> SliceLayout
   // Transform to:
   //     LoadOp -> originalLayout -> ConvertLayout(DSmem) -> SliceLayout
-  llvm::errs() << "\n Process LoadStore " << op << "\n";
+  //llvm::errs() << "\n Process LoadStore " << op << "\n";
   op->dump();
   if (auto sliceLayout = mlir::dyn_cast<ttg::SliceEncodingAttr>(layout)) {
     auto dim = sliceLayout.getDim();
@@ -979,7 +979,7 @@ bool CTAPlanner::processOpFallback(Operation *op) {
   Location loc = op->getLoc();
   OpBuilder builder(op->getContext());
 
-  llvm::errs() << "processOpFallback \n";
+  //llvm::errs() << "processOpFallback \n";
   op->dump();
 
   builder.setInsertionPoint(op);
