@@ -279,61 +279,6 @@ private:
     }
   }
 
-  // void storeClusterReduceToRemoteSharedMemory(
-  //     ReduceOpHelper &helper,
-  //     std::map<SmallVector<unsigned>, SmallVector<Value>> &accs,
-  //     std::map<SmallVector<unsigned>, SmallVector<Value>> &indices,
-  //     SmallVector<Value> &smemBases,
-  //     ConversionPatternRewriter &rewriter,
-  //     const TargetInfoBase &targetInfo) const {
-  //   triton::ReduceOp op = helper.getOperation();
-  //   Location loc = op.getLoc();
-  //   auto b = TritonLLVMOpBuilder(loc, rewriter);
-  //   auto srcLayout =
-  //       mlir::cast<DistributedEncodingTrait>(helper.getSrcLayout());
-  //   auto ctaId = targetInfo.getClusterCTAId(rewriter, loc);
-  //   unsigned axis = op.getAxis();
-  //   auto smemShape = helper.getScratchRepShape();
-
-  //   // Lezcano: We should move all the shared memory logic to use LLs
-  //   natively auto srcShape = helper.getSrcShape(); auto kCTA =
-  //   rewriter.getStringAttr("block"); auto [multiDimCTAId,
-  //   isRepresentativeCTA] =
-  //       delinearize(rewriter, loc, srcLayout, srcShape, kCTA, ctaId);
-
-  //   // auto kLane = rewriter.getStringAttr("lane");
-  //   // auto [multiDimLaneId, isRepresentativeLane] =
-  //   //     delinearize(rewriter, loc, srcLayout, srcShape, kLane, laneId);
-  //   // auto kWarp = rewriter.getStringAttr("warp");
-  //   // auto [multiDimWarpId, isRepresentativeWarp] =
-  //   //     delinearize(rewriter, loc, srcLayout, srcShape, kWarp, warpId);
-
-  //   // Value laneIdAxis = multiDimLaneId[axis];
-  //   // Value laneZero = b.icmp_eq(laneIdAxis, b.i32_val(0));
-  //   // Value write =
-  //   //     b.and_(b.and_(isRepresentativeLane, isRepresentativeWarp),
-  //   laneZero);
-
-  //   // Value warpIdAxis = multiDimWarpId[axis];
-
-  //   // auto smemOrder = helper.getOrderWithAxisAtBeginning();
-  //   // for (auto it : accs) {
-  //   //   const SmallVector<unsigned> &key = it.first;
-  //   //   SmallVector<Value> &acc = it.second;
-
-  //   //   SmallVector<Value> writeIdx = indices[key];
-  //   //   writeIdx[axis] = warpIdAxis;
-  //   //   Value writeOffset =
-  //   //       linearize(rewriter, loc, writeIdx, smemShape, smemOrder);
-  //   //   for (unsigned i = 0; i < op.getNumOperands(); ++i) {
-  //   //     auto elemTy = getElementType(op, i);
-  //   //     Value writePtr =
-  //   //         b.gep(smemBases[i].getType(), elemTy, smemBases[i],
-  //   writeOffset);
-  //   //     targetInfo.storeShared(rewriter, loc, writePtr, acc[i], write);
-  //     // }
-  //   // }
-  // }
 
   void isRepresentativeCTA(ReduceOpHelper &helper,
                            ConversionPatternRewriter &rewriter,
@@ -356,15 +301,98 @@ private:
     return;
   }
 
-  // Value isCTA0(ReduceOpHelper &helper, ConversionPatternRewriter &rewriter) {
-  //   triton::ReduceOp op = helper.getOperation();
-  //   Location loc = op.getLoc();
-  //   auto b = TritonLLVMOpBuilder(loc, rewriter);
-  //   Value zero = b.i32_val(0);
-  //   Value ctaId = targetInfo.getClusterCTAId(rewriter, loc);
-  //   Value isCTA0 = b.icmp_eq(ctaId, zero);
-  //   return isCTA0;
-  // }
+  // Load the reduction of each warp and accumulate them to a final value and
+  // store back to shared memory.
+  void accumulateCrossCTAPartialReductions(ReduceOpHelper &helper,
+                                   SmallVector<Value> &smemBases,
+                                   SmallVector<Value> &crosClusterSmemBases,
+                                   ConversionPatternRewriter &rewriter) const {
+    triton::ReduceOp op = helper.getOperation();
+    Location loc = op.getLoc();
+    auto b = TritonLLVMOpBuilder(loc, rewriter);
+    auto smemShape = helper.getScratchRepShape();
+    auto crossClusterSmemShape = helper.getCrossCTAScratchRepShape();
+    auto clusterReductionElems = product<unsigned>(crossClusterSmemShape);
+    unsigned numReductionCTAs = helper.getNumReductionCTAs();
+    auto mod = op->getParentOfType<ModuleOp>();
+    int numLanes = triton::gpu::TritonGPUDialect::getThreadsPerWarp(mod);
+    int numWarps = triton::gpu::lookupNumWarps(op);
+    int numThreads = numLanes * numWarps;
+    Value threadId = getThreadId(rewriter, loc);
+    Value warpSize = b.i32_val(numLanes);
+    Value laneId = b.urem(threadId, warpSize);
+    Value zero = b.i32_val(0);
+    unsigned elemsPerThread = std::max<unsigned>(clusterReductionElems / numThreads, 1);
+    Value threadIsNeeded = b.icmp_slt(threadId, b.i32_val(clusterReductionElems));
+    Value readOffset = threadId;
+    for (unsigned round = 0; round < elemsPerThread; ++round) {
+      SmallVector<Value> acc(op.getNumOperands());
+      for (unsigned i = 0; i < op.getNumOperands(); ++i) {
+        auto elemTy = getElementType(op, i);
+        Value readPtr =
+            b.gep(crosClusterSmemBases[i].getType(), elemTy, crosClusterSmemBases[i], readOffset);
+        acc[i] = targetInfo.loadShared(rewriter, loc, readPtr, elemTy,
+                                       threadIsNeeded);
+      }
+    
+    warpReduce(rewriter, loc, acc, op, numReductionCTAs, 1 /* interleave */,
+                              threadIsNeeded);
+    SmallVector<Value> ctaClusterInfo;
+    isRepresentativeCTA(helper, rewriter, ctaClusterInfo);
+    Value ctaRank = ctaClusterInfo[0];
+    Value isCTARank0 = b.icmp_eq(ctaRank, zero);
+    Value isRepresentativeCTA = ctaClusterInfo[1];
+
+    // only the first thread in each numReductionCTAs group of 
+    // threads is writing
+    Value writeOffset = readOffset;
+    Value crossCTAWriteOffset = b.mul(readOffset, ctaRank);
+    SmallVector<Value> crossCTAWritePtrs(op.getNumOperands());
+    for (unsigned i = 0; i < op.getNumOperands(); ++i) {
+        auto elemTy = getElementType(op, i);
+        crossCTAWritePtrs[i] =
+            b.gep(crosClusterSmemBases[i].getType(), elemTy,
+                  crosClusterSmemBases[i], crossCTAWriteOffset);
+    }
+    Value laneIdModSizeInterWarps = b.urem(laneId, b.i32_val(numReductionCTAs));
+    Value laneIdModSizeInterWarpsIsZero =
+          b.icmp_eq(laneIdModSizeInterWarps, zero);
+    Value pred = b.and_(threadIsNeeded, laneIdModSizeInterWarpsIsZero);
+    Block *currentBlock = rewriter.getInsertionBlock();
+
+    // split blocks
+    Block *CTA0block = rewriter.getInsertionBlock()->splitBlock(
+            rewriter.getInsertionPoint());
+    Block *mergeBlock =
+            CTA0block->splitBlock(CTA0block->begin());
+    // isCTA0 check
+    rewriter.setInsertionPointToEnd(rewriter.getBlock());
+    rewriter.create<LLVM::CondBrOp>(loc, isCTARank0, CTA0block,
+                                        mergeBlock);
+    rewriter.setInsertionPointToStart(CTA0block);
+    
+    // store final reduction to local or remote smem
+    for (unsigned i = 0; i < op.getNumOperands(); ++i) {
+        for(unsigned ctaIndex = 0; ctaIndex < numReductionCTAs; ++ctaIndex) {
+          if (ctaIndex == 0) {
+            targetInfo.storeShared(rewriter, loc, crossCTAWritePtrs[i], acc[i],
+                               pred);
+          } else {
+            targetInfo.storeDShared(rewriter, loc, crossCTAWritePtrs[i],
+                                zero /*ctaId=*/, acc[i], pred);
+          }
+    }
+    // rewriter.create<LLVM::BrOp>(loc, mergeBlock);
+    rewriter.setInsertionPointToStart(mergeBlock);
+    if (round != elemsPerThread - 1) {
+        readOffset = b.add(readOffset, b.i32_val(numThreads));
+    }
+      }
+    // cluster barrier
+    targetInfo.clusterBarrier(rewriter, loc);
+    }
+  }
+
 
   // Load the reduction of each warp and accumulate them to a final value and
   // store back to shared memory.
@@ -395,6 +423,26 @@ private:
     unsigned elemsPerThread = std::max<unsigned>(elems / numThreads, 1);
     Value threadIsNeeded = b.icmp_slt(threadId, b.i32_val(elems));
     Value readOffset = threadId;
+    
+    Block *currentBlock = rewriter.getInsertionBlock();
+    // split blocks
+    Block *localStoreCTABlock = rewriter.getInsertionBlock()->splitBlock(
+            rewriter.getInsertionPoint());
+    Block *remoteStoreCTABlock =
+            localStoreCTABlock->splitBlock(localStoreCTABlock->begin());
+    Block *mergeBlock =
+            remoteStoreCTABlock->splitBlock(remoteStoreCTABlock->begin());
+
+    rewriter.setInsertionPointToEnd(rewriter.getBlock());
+
+    SmallVector<Value> ctaClusterInfo;
+    isRepresentativeCTA(helper, rewriter, ctaClusterInfo);
+    Value ctaRank = ctaClusterInfo[0];
+    Value isCTARank0 = b.icmp_eq(ctaRank, zero);
+    rewriter.create<LLVM::CondBrOp>(loc, isCTARank0, localStoreCTABlock,
+                                        // remoteStoreCTABlock);
+   
+
     for (unsigned round = 0; round < elemsPerThread; ++round) {
       SmallVector<Value> acc(op.getNumOperands());
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
@@ -406,11 +454,6 @@ private:
       }
       warpReduce(rewriter, loc, acc, op, sizeInterWarps, 1 /* interleave */,
                  threadIsNeeded);
-
-      SmallVector<Value> ctaClusterInfo;
-      isRepresentativeCTA(helper, rewriter, ctaClusterInfo);
-      Value ctaRank = ctaClusterInfo[0];
-      Value isCTARank0 = b.icmp_eq(ctaRank, zero);
       Value isRepresentativeCTA = ctaClusterInfo[1];
 
       // only the first thread in each sizeInterWarps is writing
@@ -430,23 +473,13 @@ private:
       Value laneIdModSizeInterWarps = b.urem(laneId, b.i32_val(sizeInterWarps));
       Value laneIdModSizeInterWarpsIsZero =
           b.icmp_eq(laneIdModSizeInterWarps, zero);
-      Value pred = b.and_(threadIsNeeded, laneIdModSizeInterWarpsIsZero);
+      Value predThreadWarp = b.and_(threadIsNeeded, laneIdModSizeInterWarpsIsZero);
+      Value pred = b.and_(predThreadWarp, isRepresentativeCTA);
 
-      Block *currentBlock = rewriter.getInsertionBlock();
-      pred = b.and_(pred, isRepresentativeCTA);
-
+      // TODO move block splitting out of the loop
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
-        // split blocks
-        Block *localStoreCTABlock = rewriter.getInsertionBlock()->splitBlock(
-            rewriter.getInsertionPoint());
-        Block *remoteStoreCTABlock =
-            localStoreCTABlock->splitBlock(localStoreCTABlock->begin());
-        Block *mergeBlock =
-            remoteStoreCTABlock->splitBlock(remoteStoreCTABlock->begin());
-        // isCTA0 check
-        rewriter.setInsertionPointToEnd(rewriter.getBlock());
-        rewriter.create<LLVM::CondBrOp>(loc, isCTARank0, localStoreCTABlock,
-                                        remoteStoreCTABlock);
+       
+        
         // Local store
         rewriter.setInsertionPointToStart(localStoreCTABlock);
         targetInfo.storeShared(rewriter, loc, writePtrs[i], acc[i], pred);
