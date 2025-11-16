@@ -34,6 +34,7 @@ from .mem_ops import (
     async_descriptor_store_wait,
     fence_async_shared,
     make_tensor_descriptor,
+    remote_shmem_store
 )
 from .barrier import (
     alloc_barriers,
@@ -42,6 +43,7 @@ from .barrier import (
     barrier_arrive,
     named_barrier_wait,
     named_barrier_arrive,
+    cluster_barrier,
 )
 from .mma_ops import (
     async_dot,
@@ -56,7 +58,11 @@ from .utility import (
     dtype_of,
     size_of,
     clock64,
+<<<<<<< HEAD
     stoch_round,
+=======
+    set_num_reduction_ctas,
+>>>>>>> 50e2b1c45 ([tlx] DSM support + LayerNorm with Bias Kernel)
 )
 from .dynamic_launch import (
     _alloc_clc_responses,
@@ -106,8 +112,13 @@ __all__ = [
     "async_descriptor_store",
     "async_descriptor_store_wait",
     "fence_async_shared",
+<<<<<<< HEAD
     "make_tensor_descriptor",
+=======
+    "remote_shmem_store"
+>>>>>>> 50e2b1c45 ([tlx] DSM support + LayerNorm with Bias Kernel)
     # barriers
+    "cluster_barrier",
     "alloc_barriers",
     "barrier_expect_bytes",
     "barrier_wait",
@@ -126,7 +137,11 @@ __all__ = [
     "dtype_of",
     "size_of",
     "clock64",
+<<<<<<< HEAD
     "stoch_round",
+=======
+    "set_num_reduction_ctas",
+>>>>>>> 50e2b1c45 ([tlx] DSM support + LayerNorm with Bias Kernel)
     # dynamic launcher ops
     "_alloc_clc_responses",
     "_clc_issue",
