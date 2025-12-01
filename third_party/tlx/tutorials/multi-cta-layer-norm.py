@@ -6,7 +6,7 @@ import triton.language.extra.tlx as tlx
 from torch._inductor.runtime.triton_compat import libdevice
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
-DTYPE = torch.float32
+DTYPE = torch.bfloat16
 
 
 ########################## HELION #############################
@@ -25,7 +25,7 @@ def _helion_layer_norm_fwd(
     indices_0 = offset_0 + tl.zeros([1], tl.int32)
     # src[layer_norm.py:300]: mean_val = torch.sum(acc, dim=-1) / n
     sum_1_acc = tl.full([_BLOCK_SIZE_0, _REDUCTION_BLOCK_1], 0, tl.float32)
-    # src[layer_norm.py:298]: acc = x[tile_m, :].to(torch.float32)
+    # src[layer_norm.py:298]: acc = x[tile_m, :].to(DTYPE)
     for roffset_1 in tl.range(0, 16384, _REDUCTION_BLOCK_1):
         rindex_1 = roffset_1 + tl.arange(0, _REDUCTION_BLOCK_1).to(tl.int32)
         load = tl.load(x + (indices_0[:, None] * 16384 + rindex_1[None, :] * 1), None, eviction_policy="evict_first")
@@ -40,7 +40,7 @@ def _helion_layer_norm_fwd(
     subscript = v_3[:, None]
     # src[layer_norm.py:303]: var_val = torch.sum(centered * centered, dim=-1) / n
     sum_2_acc = tl.full([_BLOCK_SIZE_0, _REDUCTION_BLOCK_1], 0, tl.float32)
-    # src[layer_norm.py:298]: acc = x[tile_m, :].to(torch.float32)
+    # src[layer_norm.py:298]: acc = x[tile_m, :].to(DTYPE)
     for roffset_1 in tl.range(0, 16384, _REDUCTION_BLOCK_1):
         rindex_1 = roffset_1 + tl.arange(0, _REDUCTION_BLOCK_1).to(tl.int32)
         subscript_copy = subscript
@@ -64,7 +64,7 @@ def _helion_layer_norm_fwd(
     tl.store(mean + indices_0 * 1, v_3, None)
     # src[layer_norm.py:317]: rstd[tile_m] = rstd_val
     tl.store(rstd + indices_0 * 1, v_11, None)
-    # src[layer_norm.py:298]: acc = x[tile_m, :].to(torch.float32)
+    # src[layer_norm.py:298]: acc = x[tile_m, :].to(DTYPE)
     for roffset_1 in tl.range(0, 16384, _REDUCTION_BLOCK_1):
         rindex_1 = roffset_1 + tl.arange(0, _REDUCTION_BLOCK_1).to(tl.int32)
         v_3_copy = v_3
@@ -76,16 +76,16 @@ def _helion_layer_norm_fwd(
         v_13 = v_12 - subscript_2
         # src[layer_norm.py:307]: normalized = centered * rstd_val[:, None]
         v_14 = v_13 * subscript_1_copy
-        # src[layer_norm.py:310]: acc = normalized * (weight[:].to(torch.float32)) + (
+        # src[layer_norm.py:310]: acc = normalized * (weight[:].to(DTYPE)) + (
         load_3 = tl.load(weight + rindex_1 * 1, None, eviction_policy="evict_first")
         v_15 = tl.cast(load_3, tl.float32)
         v_16 = v_15[None, :]
         v_17 = v_14 * v_16
-        # src[layer_norm.py:311]: bias[:].to(torch.float32)
+        # src[layer_norm.py:311]: bias[:].to(DTYPE)
         load_4 = tl.load(bias + rindex_1 * 1, None)
         v_18 = tl.cast(load_4, tl.float32)
-        # src[layer_norm.py:310]: acc = normalized * (weight[:].to(torch.float32)) + (
-        # src[layer_norm.py:311]:     bias[:].to(torch.float32)
+        # src[layer_norm.py:310]: acc = normalized * (weight[:].to(DTYPE)) + (
+        # src[layer_norm.py:311]:     bias[:].to(DTYPE)
         # src[layer_norm.py:312]: )
         v_19 = v_18[None, :]
         v_20 = v_17 + v_19
@@ -157,13 +157,13 @@ def normalize_and_create_outs(x_orig, weight, bias, eps):
     assert normalized_shape[0] == n, f"normalized shape mismatch {normalized_shape[0]} != {n}"
     # src[layer_norm.py:293]: out = torch.empty([m, n], dtype=x.dtype, device=x.device)
     out = torch.empty([m, n], dtype=x.dtype, device=x.device)
-    # src[layer_norm.py:294]: mean = torch.empty([m], dtype=torch.float32, device=x.device)
-    mean = torch.empty([m], dtype=torch.float32, device=x.device)
-    # src[layer_norm.py:295]: rstd = torch.empty([m], dtype=torch.float32, device=x.device)
-    rstd = torch.empty([m], dtype=torch.float32, device=x.device)
-    # src[layer_norm.py:298]: acc = x[tile_m, :].to(torch.float32)
+    # src[layer_norm.py:294]: mean = torch.empty([m], dtype=DTYPE, device=x.device)
+    mean = torch.empty([m], dtype=DTYPE, device=x.device)
+    # src[layer_norm.py:295]: rstd = torch.empty([m], dtype=DTYPE, device=x.device)
+    rstd = torch.empty([m], dtype=DTYPE, device=x.device)
+    # src[layer_norm.py:298]: acc = x[tile_m, :].to(DTYPE)
     # src[layer_norm.py:297]: for tile_m in hl.tile(m):
-    # src[layer_norm.py:298]:     acc = x[tile_m, :].to(torch.float32)
+    # src[layer_norm.py:298]:     acc = x[tile_m, :].to(DTYPE)
     # src[layer_norm.py:299]:     # Compute mean
     # src[layer_norm.py:297-317]: ...
     # _launcher(_helion_layer_norm_fwd, (1152,), x, mean, rstd, weight, bias, out, eps, _BLOCK_SIZE_0, _REDUCTION_BLOCK_1, num_warps=16, num_stages=3)
@@ -343,7 +343,7 @@ benchmark_configs = [
     triton.testing.Benchmark(
         x_names=["shape"],
         x_vals=[f"{s[0]},{s[1]}, {s[2]}" for s in shapes],
-        args={"dtype": torch.float32},
+        args={"dtype": DTYPE},
         line_arg="provider",
         # line_vals=["triton-1-cta"],
         # line_names=["triton-1-cta"],
