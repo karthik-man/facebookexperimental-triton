@@ -69,19 +69,19 @@ public:
       if (!clusterDims.empty()) {
         // Ensure we have exactly 3 dimensions (X, Y, Z)
         SmallVector<int32_t, 3> dims;
-        if(clusterDims.size() != 3) {
-          return mod.emitError() << "Expected 3 cluster dimensions, got "
-                                 << clusterDims.size();
+        if (clusterDims.size() != 3) {
+          return mod.emitError()
+                 << "Expected 3 cluster dimensions, got " << clusterDims.size();
         }
         isClustered = (clusterDims[0] * clusterDims[1] * clusterDims[2]) > 1;
       }
       // There should not be a mapa in unclustered mode
       if (!isClustered) {
         if (mod.walk([&](ttng::MapToRemoteBufferOp mapaOp) {
-                mapaOp.emitError()
-                    << "Unexpected buffer remote view in 1cta mode";
-                return WalkResult::interrupt();
-              })
+                 mapaOp.emitError()
+                     << "Unexpected buffer remote view in 1cta mode";
+                 return WalkResult::interrupt();
+               })
                 .wasInterrupted()) {
           return failure();
         }

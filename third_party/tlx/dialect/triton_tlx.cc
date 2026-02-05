@@ -739,12 +739,9 @@ void init_triton_tlx_passes(py::module &&m) {
                      tlx::createTLXStorageAliasLowering);
   // Custom wrapper for TritonTLXFixup to handle cluster_dims as vector
   //  ADD_PASS_WRAPPER_5 cannot handle the clusterDims list
-  m.def("add_triton_tlx_fixup", 
-        [](mlir::PassManager &pm, 
-           std::string target,
-           int32_t numWarps, 
-           int32_t threadsPerWarp,
-           int32_t numCTAs,
+  m.def("add_triton_tlx_fixup",
+        [](mlir::PassManager &pm, std::string target, int32_t numWarps,
+           int32_t threadsPerWarp, int32_t numCTAs,
            std::vector<int32_t> clusterDims) {
           tlx::TritonTLXFixupOptions options;
           options.target = target;
